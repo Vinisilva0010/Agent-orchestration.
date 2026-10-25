@@ -17,6 +17,10 @@ updates:
     groups:
       python-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # uv_build must match the installed uv version, so uv uses its built-in
+      # backend instead of downloading uv_build from PyPI. Bump it together with uv.
+      - dependency-name: "uv-build"
 
   - package-ecosystem: npm
     directory: /web
@@ -25,6 +29,11 @@ updates:
     groups:
       web-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Node type definitions must match the Node.js runtime (22.x).
+      # Bump the major version only together with the runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
