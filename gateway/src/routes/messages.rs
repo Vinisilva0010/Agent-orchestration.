@@ -1,42 +1,30 @@
-use axum::{
-    Json,
-    extract::State,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
-use serde_json::json;
+use axum::{Extension, Json, extract::State};
 
 use crate::{
     AppState,
-    provider::{CompletionRequest, CompletionResponse, ProviderError},
+    provider::{CompletionRequest, CompletionResponse},
+    routes::error::ApiError,
+    tokens::TaskGrant,
 };
 
-/// Sends a provider-neutral completion request to the configured provider.
+/// Sends a provider-neutral completion request to the configured provider on
+/// behalf of the task identified by the caller's token.
 pub async fn create_message(
     State(state): State<AppState>,
+    Extension(grant): Extension<TaskGrant>,
     Json(request): Json<CompletionRequest>,
 ) -> Result<Json<CompletionResponse>, ApiError> {
     let response = state.provider.complete(&request).await?;
+    tracing::info!(
+        task_id = %grant.task_id,
+        agent_id = %grant.agent_id,
+        provider = %response.provider,
+        model = %response.model,
+        input_tokens = response.usage.input_tokens,
+        output_tokens = response.usage.output_tokens,
+        cache_read_tokens = response.usage.cache_read_tokens,
+        cache_write_tokens = response.usage.cache_write_tokens,
+        "completion"
+    );
     Ok(Json(response))
-}
-
-/// Error returned to callers. Messages never include credentials or raw
-/// provider responses.
-pub struct ApiError(ProviderError);
-
-impl From<ProviderError> for ApiError {
-    fn from(error: ProviderError) -> Self {
-        Self(error)
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let (status, code) = match &self.0 {
-            ProviderError::InvalidRequest(_) => (StatusCode::BAD_REQUEST, "invalid_request"),
-            ProviderError::Unavailable(_) => (StatusCode::BAD_GATEWAY, "provider_unavailable"),
-        };
-        let body = json!({ "error": { "code": code, "message": self.0.to_string() } });
-        (status, Json(body)).into_response()
-    }
 }

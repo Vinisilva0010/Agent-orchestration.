@@ -1,22 +1,11 @@
 mod common;
 
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
-};
-use tower::ServiceExt;
+use axum::http::StatusCode;
 
 #[tokio::test]
-async fn health_returns_ok() {
-    let response = common::test_app()
-        .oneshot(
-            Request::builder()
-                .uri("/health")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+async fn health_returns_ok_without_authentication() {
+    let app = common::test_app();
+    let response = common::send(&app, "GET", "/health", None, None).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     let json = common::json_body(response).await;
@@ -26,15 +15,7 @@ async fn health_returns_ok() {
 
 #[tokio::test]
 async fn unknown_route_returns_not_found() {
-    let response = common::test_app()
-        .oneshot(
-            Request::builder()
-                .uri("/does-not-exist")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
+    let app = common::test_app();
+    let response = common::send(&app, "GET", "/does-not-exist", None, None).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

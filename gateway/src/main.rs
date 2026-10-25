@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gateway::{AppState, app, config::Config, provider::mock::MockProvider};
+use gateway::{AppState, app, config::Config, provider::mock::MockProvider, tokens::TokenStore};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
@@ -17,7 +17,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(bind = %config.bind, "gateway listening");
 
     tracing::warn!("using the mock provider: no real model is called");
-    let state = AppState::new(Arc::new(MockProvider::new()));
+    let state = AppState::new(
+        Arc::new(MockProvider::new()),
+        Arc::new(TokenStore::new()),
+        &config.issuer_secret,
+    );
+    drop(config);
 
     axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown_signal())
