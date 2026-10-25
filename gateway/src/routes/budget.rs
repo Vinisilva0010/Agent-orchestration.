@@ -27,7 +27,8 @@ pub async fn set_agent_budget(
     validate_id(&agent_id, "agent_id")?;
     state
         .ledger
-        .set_agent_monthly_budget(&agent_id, request.monthly_budget_micros)?;
+        .set_agent_monthly_budget(&agent_id, request.monthly_budget_micros)
+        .await?;
     tracing::info!(
         agent_id = %agent_id,
         monthly_budget_micros = request.monthly_budget_micros,
@@ -41,5 +42,5 @@ pub async fn set_agent_budget(
 
 /// Workspace spending for the current month.
 pub async fn workspace_usage(State(state): State<AppState>) -> Result<Json<Account>, ApiError> {
-    Ok(Json(state.ledger.workspace_usage()?))
+    Ok(Json(state.ledger.workspace_usage().await?))
 }

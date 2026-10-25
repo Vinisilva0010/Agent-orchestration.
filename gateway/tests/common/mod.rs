@@ -24,8 +24,8 @@ pub const TASK_BUDGET_MICROS: u64 = 1_000_000;
 pub fn test_app(pool: PgPool) -> Router {
     app(AppState::new(
         Arc::new(MockProvider::new()),
-        Arc::new(TokenStore::new(pool)),
-        Arc::new(Ledger::new(WORKSPACE_BUDGET_MICROS)),
+        Arc::new(TokenStore::new(pool.clone())),
+        Arc::new(Ledger::new(pool, WORKSPACE_BUDGET_MICROS)),
         &SecretString::from(ISSUER_SECRET.to_string()),
     ))
 }

@@ -202,8 +202,6 @@ async fn token_survives_gateway_restart(pool: PgPool) {
         Some(small_request()),
     )
     .await;
-    // The token is still accepted after the restart. Task budgets are still kept
-    // in memory, so the call can be refused for budget, never for authentication.
-    // This becomes StatusCode::OK when budgets move to the database.
-    assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+    // Both the token and the task budget survive the restart.
+    assert_eq!(response.status(), StatusCode::OK);
 }

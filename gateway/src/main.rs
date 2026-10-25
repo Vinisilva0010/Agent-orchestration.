@@ -22,10 +22,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(bind = %config.bind, "gateway listening");
 
     tracing::warn!("using the mock provider: no real model is called");
+    let ledger = Arc::new(Ledger::new(pool.clone(), config.monthly_budget_micros));
+    ledger.spawn_stale_reservation_sweeper();
+
     let state = AppState::new(
         Arc::new(MockProvider::new()),
         Arc::new(TokenStore::new(pool.clone())),
-        Arc::new(Ledger::new(config.monthly_budget_micros)),
+        Arc::clone(&ledger),
         &config.issuer_secret,
     );
     drop(config);

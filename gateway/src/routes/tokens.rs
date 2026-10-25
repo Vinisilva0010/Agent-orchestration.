@@ -39,7 +39,8 @@ pub async fn issue(
         .await?;
     state
         .ledger
-        .set_task_budget(&request.task_id, request.budget_micros)?;
+        .set_task_budget(&request.task_id, request.budget_micros)
+        .await?;
     tracing::info!(
         task_id = %request.task_id,
         agent_id = %request.agent_id,
