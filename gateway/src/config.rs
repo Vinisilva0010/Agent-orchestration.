@@ -22,6 +22,17 @@ pub struct Config {
     pub issuer_secret: SecretString,
     /// Spending limit for the whole workspace per calendar month (UTC).
     pub monthly_budget_micros: u64,
+    /// PostgreSQL connection URL. Contains the database password.
+    pub database_url: SecretString,
+}
+
+/// Raw values as read from the environment.
+#[derive(Debug, Default)]
+pub struct RawConfig {
+    pub bind: Option<String>,
+    pub issuer_secret: Option<String>,
+    pub monthly_budget_usd: Option<String>,
+    pub database_url: Option<String>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -36,45 +47,55 @@ pub enum ConfigError {
     MissingMonthlyBudget,
     #[error("GATEWAY_MONTHLY_BUDGET_USD must be a positive dollar amount such as 50 or 12.5")]
     InvalidMonthlyBudget,
+    #[error("DATABASE_URL is not set")]
+    MissingDatabaseUrl,
+    #[error("DATABASE_URL must start with postgres:// or postgresql://")]
+    InvalidDatabaseUrl,
 }
 
 impl Config {
-    /// Reads `GATEWAY_BIND`, `GATEWAY_ISSUER_SECRET` and
-    /// `GATEWAY_MONTHLY_BUDGET_USD` from the environment.
+    /// Reads `GATEWAY_BIND`, `GATEWAY_ISSUER_SECRET`, `GATEWAY_MONTHLY_BUDGET_USD`
+    /// and `DATABASE_URL` from the environment.
     pub fn from_env() -> Result<Self, ConfigError> {
-        let bind = std::env::var("GATEWAY_BIND").ok();
-        let secret = std::env::var("GATEWAY_ISSUER_SECRET").ok();
-        let budget = std::env::var("GATEWAY_MONTHLY_BUDGET_USD").ok();
-        Self::from_values(bind.as_deref(), secret, budget.as_deref())
+        Self::from_raw(RawConfig {
+            bind: std::env::var("GATEWAY_BIND").ok(),
+            issuer_secret: std::env::var("GATEWAY_ISSUER_SECRET").ok(),
+            monthly_budget_usd: std::env::var("GATEWAY_MONTHLY_BUDGET_USD").ok(),
+            database_url: std::env::var("DATABASE_URL").ok(),
+        })
     }
 
-    /// Builds the configuration from explicit values. Kept separate from
-    /// [`Config::from_env`] so it can be tested without modifying the process
-    /// environment.
-    pub fn from_values(
-        bind: Option<&str>,
-        issuer_secret: Option<String>,
-        monthly_budget_usd: Option<&str>,
-    ) -> Result<Self, ConfigError> {
-        let raw = bind.unwrap_or(DEFAULT_BIND);
-        let bind = raw
+    /// Validates raw values. Kept separate from [`Config::from_env`] so it can be
+    /// tested without modifying the process environment.
+    pub fn from_raw(raw: RawConfig) -> Result<Self, ConfigError> {
+        let bind_text = raw.bind.as_deref().unwrap_or(DEFAULT_BIND);
+        let bind = bind_text
             .parse()
-            .map_err(|_| ConfigError::InvalidBind(raw.to_string()))?;
+            .map_err(|_| ConfigError::InvalidBind(bind_text.to_string()))?;
 
-        let secret = issuer_secret.ok_or(ConfigError::MissingIssuerSecret)?;
+        let secret = raw.issuer_secret.ok_or(ConfigError::MissingIssuerSecret)?;
         if secret.chars().count() < MIN_ISSUER_SECRET_LEN {
             return Err(ConfigError::IssuerSecretTooShort);
         }
 
-        let monthly_budget_micros =
-            parse_usd_to_micros(monthly_budget_usd.ok_or(ConfigError::MissingMonthlyBudget)?)
-                .filter(|micros| *micros > 0)
-                .ok_or(ConfigError::InvalidMonthlyBudget)?;
+        let monthly_budget_micros = parse_usd_to_micros(
+            raw.monthly_budget_usd
+                .as_deref()
+                .ok_or(ConfigError::MissingMonthlyBudget)?,
+        )
+        .filter(|micros| *micros > 0)
+        .ok_or(ConfigError::InvalidMonthlyBudget)?;
+
+        let database_url = raw.database_url.ok_or(ConfigError::MissingDatabaseUrl)?;
+        if !(database_url.starts_with("postgres://") || database_url.starts_with("postgresql://")) {
+            return Err(ConfigError::InvalidDatabaseUrl);
+        }
 
         Ok(Self {
             bind,
             issuer_secret: SecretString::from(secret),
             monthly_budget_micros,
+            database_url: SecretString::from(database_url),
         })
     }
 }
@@ -83,15 +104,20 @@ impl Config {
 mod tests {
     use super::*;
 
-    const BUDGET: Option<&str> = Some("50");
+    const DB_URL: &str = "postgres://user:db-password-123@127.0.0.1:5433/db";
 
-    fn valid_secret() -> Option<String> {
-        Some("x".repeat(MIN_ISSUER_SECRET_LEN))
+    fn valid() -> RawConfig {
+        RawConfig {
+            bind: None,
+            issuer_secret: Some("x".repeat(MIN_ISSUER_SECRET_LEN)),
+            monthly_budget_usd: Some("50".to_string()),
+            database_url: Some(DB_URL.to_string()),
+        }
     }
 
     #[test]
-    fn defaults_to_loopback() {
-        let config = Config::from_values(None, valid_secret(), BUDGET).expect("valid config");
+    fn accepts_valid_configuration_with_loopback_default() {
+        let config = Config::from_raw(valid()).expect("valid config");
         assert!(config.bind.ip().is_loopback());
         assert_eq!(config.bind.port(), 8081);
         assert_eq!(config.monthly_budget_micros, 50_000_000);
@@ -99,15 +125,21 @@ mod tests {
 
     #[test]
     fn accepts_custom_address() {
-        let config = Config::from_values(Some("127.0.0.1:9000"), valid_secret(), BUDGET)
-            .expect("valid config");
+        let config = Config::from_raw(RawConfig {
+            bind: Some("127.0.0.1:9000".to_string()),
+            ..valid()
+        })
+        .expect("valid config");
         assert_eq!(config.bind.port(), 9000);
     }
 
     #[test]
     fn rejects_invalid_address() {
-        let error =
-            Config::from_values(Some("not-an-address"), valid_secret(), BUDGET).unwrap_err();
+        let error = Config::from_raw(RawConfig {
+            bind: Some("not-an-address".to_string()),
+            ..valid()
+        })
+        .unwrap_err();
         assert_eq!(
             error,
             ConfigError::InvalidBind("not-an-address".to_string())
@@ -115,36 +147,58 @@ mod tests {
     }
 
     #[test]
-    fn requires_issuer_secret() {
-        let error = Config::from_values(None, None, BUDGET).unwrap_err();
-        assert_eq!(error, ConfigError::MissingIssuerSecret);
+    fn requires_issuer_secret_of_minimum_length() {
+        let missing = Config::from_raw(RawConfig {
+            issuer_secret: None,
+            ..valid()
+        });
+        assert_eq!(missing.unwrap_err(), ConfigError::MissingIssuerSecret);
+
+        let short = Config::from_raw(RawConfig {
+            issuer_secret: Some("x".repeat(MIN_ISSUER_SECRET_LEN - 1)),
+            ..valid()
+        });
+        assert_eq!(short.unwrap_err(), ConfigError::IssuerSecretTooShort);
     }
 
     #[test]
-    fn rejects_short_issuer_secret() {
-        let short = Some("x".repeat(MIN_ISSUER_SECRET_LEN - 1));
-        let error = Config::from_values(None, short, BUDGET).unwrap_err();
-        assert_eq!(error, ConfigError::IssuerSecretTooShort);
-    }
+    fn requires_valid_monthly_budget() {
+        let missing = Config::from_raw(RawConfig {
+            monthly_budget_usd: None,
+            ..valid()
+        });
+        assert_eq!(missing.unwrap_err(), ConfigError::MissingMonthlyBudget);
 
-    #[test]
-    fn requires_monthly_budget() {
-        let error = Config::from_values(None, valid_secret(), None).unwrap_err();
-        assert_eq!(error, ConfigError::MissingMonthlyBudget);
-    }
-
-    #[test]
-    fn rejects_invalid_monthly_budget() {
         for bad in ["0", "-5", "abc", "1.1234567"] {
-            let error = Config::from_values(None, valid_secret(), Some(bad)).unwrap_err();
+            let error = Config::from_raw(RawConfig {
+                monthly_budget_usd: Some(bad.to_string()),
+                ..valid()
+            })
+            .unwrap_err();
             assert_eq!(error, ConfigError::InvalidMonthlyBudget, "{bad}");
         }
     }
 
     #[test]
-    fn debug_output_does_not_reveal_secret() {
-        let secret = "s".repeat(MIN_ISSUER_SECRET_LEN);
-        let config = Config::from_values(None, Some(secret.clone()), BUDGET).unwrap();
-        assert!(!format!("{config:?}").contains(&secret));
+    fn requires_postgres_database_url() {
+        let missing = Config::from_raw(RawConfig {
+            database_url: None,
+            ..valid()
+        });
+        assert_eq!(missing.unwrap_err(), ConfigError::MissingDatabaseUrl);
+
+        let wrong = Config::from_raw(RawConfig {
+            database_url: Some("mysql://user:pass@host/db".to_string()),
+            ..valid()
+        });
+        assert_eq!(wrong.unwrap_err(), ConfigError::InvalidDatabaseUrl);
+    }
+
+    #[test]
+    fn debug_output_does_not_reveal_secrets() {
+        let config = Config::from_raw(valid()).unwrap();
+        let debug = format!("{config:?}");
+        assert!(!debug.contains(&"x".repeat(MIN_ISSUER_SECRET_LEN)));
+        assert!(!debug.contains("db-password-123"));
     }
 }

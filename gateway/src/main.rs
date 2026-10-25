@@ -15,6 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = Config::from_env()?;
+    let _pool = gateway::db::connect(&config.database_url).await?;
+    gateway::db::migrate(&_pool).await?;
+    tracing::info!("database ready, migrations applied");
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "gateway listening");
 

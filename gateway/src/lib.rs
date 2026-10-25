@@ -6,6 +6,7 @@
 mod auth;
 pub mod budget;
 pub mod config;
+pub mod db;
 pub mod pricing;
 pub mod provider;
 mod routes;
