@@ -2,6 +2,7 @@ mod common;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use sqlx::PgPool;
 
 fn small_request() -> Value {
     json!({
@@ -11,9 +12,9 @@ fn small_request() -> Value {
     })
 }
 
-#[tokio::test]
-async fn response_reports_cost_and_remaining_task_budget() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn response_reports_cost_and_remaining_task_budget(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
 
     let response = common::send(
@@ -33,9 +34,9 @@ async fn response_reports_cost_and_remaining_task_budget() {
     assert_eq!(remaining, common::TASK_BUDGET_MICROS - cost);
 }
 
-#[tokio::test]
-async fn call_that_cannot_fit_the_task_budget_is_rejected() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn call_that_cannot_fit_the_task_budget_is_rejected(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token_with(&app, "task-tiny", "agent-1", 10).await;
 
     let response = common::send(
@@ -53,9 +54,9 @@ async fn call_that_cannot_fit_the_task_budget_is_rejected() {
     );
 }
 
-#[tokio::test]
-async fn task_stops_when_its_budget_runs_out() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn task_stops_when_its_budget_runs_out(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token_with(&app, "task-limited", "agent-1", 2_000).await;
 
     let mut statuses = Vec::new();
@@ -77,9 +78,9 @@ async fn task_stops_when_its_budget_runs_out() {
     assert_eq!(statuses.last(), Some(&StatusCode::PAYMENT_REQUIRED));
 }
 
-#[tokio::test]
-async fn issuing_requires_a_valid_budget() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn issuing_requires_a_valid_budget(pool: PgPool) {
+    let app = common::test_app(pool);
 
     let missing = common::send(
         &app,
@@ -102,9 +103,9 @@ async fn issuing_requires_a_valid_budget() {
     assert_eq!(zero.status(), StatusCode::BAD_REQUEST);
 }
 
-#[tokio::test]
-async fn agent_monthly_budget_is_enforced() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn agent_monthly_budget_is_enforced(pool: PgPool) {
+    let app = common::test_app(pool);
     let set = common::send(
         &app,
         "PUT",
@@ -127,9 +128,9 @@ async fn agent_monthly_budget_is_enforced() {
     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
 }
 
-#[tokio::test]
-async fn workspace_usage_requires_issuer_and_reports_spending() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn workspace_usage_requires_issuer_and_reports_spending(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
     common::send(
         &app,

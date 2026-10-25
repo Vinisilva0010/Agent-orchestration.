@@ -30,13 +30,17 @@ pub async fn require_task_token(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let grant = bearer(request.headers()).and_then(|token| state.tokens.verify(token).ok());
-    match grant {
-        Some(grant) => {
+    let Some(token) = bearer(request.headers()).map(str::to_owned) else {
+        return ApiError::unauthorized().into_response();
+    };
+    match state.tokens.verify(&token).await {
+        Ok(grant) => {
             request.extensions_mut().insert(grant);
             next.run(request).await
         }
-        None => ApiError::unauthorized().into_response(),
+        // Store failures are reported as internal errors and never let the
+        // request through.
+        Err(error) => ApiError::from(error).into_response(),
     }
 }
 

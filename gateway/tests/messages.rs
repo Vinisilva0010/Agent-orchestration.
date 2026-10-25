@@ -2,6 +2,7 @@ mod common;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use sqlx::PgPool;
 
 fn valid_request() -> Value {
     json!({
@@ -12,9 +13,9 @@ fn valid_request() -> Value {
     })
 }
 
-#[tokio::test]
-async fn rejects_request_without_token() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn rejects_request_without_token(pool: PgPool) {
+    let app = common::test_app(pool);
     let response = common::send(&app, "POST", "/v1/messages", None, Some(valid_request())).await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(
@@ -23,9 +24,9 @@ async fn rejects_request_without_token() {
     );
 }
 
-#[tokio::test]
-async fn rejects_unknown_token() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn rejects_unknown_token(pool: PgPool) {
+    let app = common::test_app(pool);
     let response = common::send(
         &app,
         "POST",
@@ -37,9 +38,9 @@ async fn rejects_unknown_token() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[tokio::test]
-async fn rejects_issuer_secret_used_as_task_token() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn rejects_issuer_secret_used_as_task_token(pool: PgPool) {
+    let app = common::test_app(pool);
     let response = common::send(
         &app,
         "POST",
@@ -51,9 +52,9 @@ async fn rejects_issuer_secret_used_as_task_token() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[tokio::test]
-async fn returns_completion_with_valid_token() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn returns_completion_with_valid_token(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
 
     let response = common::send(
@@ -72,9 +73,9 @@ async fn returns_completion_with_valid_token() {
     assert!(json["usage"]["cache_write_tokens"].as_u64().unwrap() > 0);
 }
 
-#[tokio::test]
-async fn returns_tool_call_when_requested() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn returns_tool_call_when_requested(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
 
     let mut body = valid_request();
@@ -91,9 +92,9 @@ async fn returns_tool_call_when_requested() {
     assert_eq!(json["content"][0]["name"], "search");
 }
 
-#[tokio::test]
-async fn rejects_empty_messages_with_clear_error() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn rejects_empty_messages_with_clear_error(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
 
     let mut body = valid_request();
@@ -107,9 +108,9 @@ async fn rejects_empty_messages_with_clear_error() {
     );
 }
 
-#[tokio::test]
-async fn rejects_unknown_fields() {
-    let app = common::test_app();
+#[sqlx::test(migrations = "./migrations")]
+async fn rejects_unknown_fields(pool: PgPool) {
+    let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
 
     let mut body = valid_request();

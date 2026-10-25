@@ -35,7 +35,8 @@ pub async fn issue(
     let ttl = request.ttl_seconds.map_or(DEFAULT_TTL, Duration::from_secs);
     let issued = state
         .tokens
-        .issue(&request.task_id, &request.agent_id, ttl)?;
+        .issue(&request.task_id, &request.agent_id, ttl)
+        .await?;
     state
         .ledger
         .set_task_budget(&request.task_id, request.budget_micros)?;
@@ -57,7 +58,7 @@ pub async fn issue(
 
 #[derive(Debug, Serialize)]
 pub struct RevokeResponse {
-    revoked: usize,
+    revoked: u64,
 }
 
 /// Revokes every token of a task.
@@ -65,7 +66,7 @@ pub async fn revoke(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<RevokeResponse>, ApiError> {
-    let revoked = state.tokens.revoke_task(&task_id)?;
+    let revoked = state.tokens.revoke_task(&task_id).await?;
     tracing::info!(task_id = %task_id, revoked, "task tokens revoked");
     Ok(Json(RevokeResponse { revoked }))
 }

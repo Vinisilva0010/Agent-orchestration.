@@ -11,6 +11,7 @@ use axum::{
 use gateway::{AppState, app, budget::Ledger, provider::mock::MockProvider, tokens::TokenStore};
 use secrecy::SecretString;
 use serde_json::{Value, json};
+use sqlx::PgPool;
 use tower::ServiceExt;
 
 pub const ISSUER_SECRET: &str = "test-issuer-secret-0123456789abcdef";
@@ -19,10 +20,11 @@ pub const WORKSPACE_BUDGET_MICROS: u64 = 100_000_000;
 /// Task budget used by `issue_token`: 1 USD.
 pub const TASK_BUDGET_MICROS: u64 = 1_000_000;
 
-pub fn test_app() -> Router {
+/// Builds the gateway on a test database created by `sqlx::test`.
+pub fn test_app(pool: PgPool) -> Router {
     app(AppState::new(
         Arc::new(MockProvider::new()),
-        Arc::new(TokenStore::new()),
+        Arc::new(TokenStore::new(pool)),
         Arc::new(Ledger::new(WORKSPACE_BUDGET_MICROS)),
         &SecretString::from(ISSUER_SECRET.to_string()),
     ))

@@ -15,8 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = Config::from_env()?;
-    let _pool = gateway::db::connect(&config.database_url).await?;
-    gateway::db::migrate(&_pool).await?;
+    let pool = gateway::db::connect(&config.database_url).await?;
+    gateway::db::migrate(&pool).await?;
     tracing::info!("database ready, migrations applied");
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "gateway listening");
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::warn!("using the mock provider: no real model is called");
     let state = AppState::new(
         Arc::new(MockProvider::new()),
-        Arc::new(TokenStore::new()),
+        Arc::new(TokenStore::new(pool.clone())),
         Arc::new(Ledger::new(config.monthly_budget_micros)),
         &config.issuer_secret,
     );
