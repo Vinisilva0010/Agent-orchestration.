@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use gateway::{
-    AppState, app, budget::Ledger, config::Config, provider::mock::MockProvider, tokens::TokenStore,
+    AppState, app, budget::Ledger, config::Config, provider::mock::MockProvider,
+    tokens::TokenStore, vault::Vault,
 };
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -18,17 +19,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = gateway::db::connect(&config.database_url).await?;
     gateway::db::migrate(&pool).await?;
     tracing::info!("database ready, migrations applied");
+
+    let vault = Arc::new(Vault::new(pool.clone(), &config.master_key)?);
+    let ledger = Arc::new(Ledger::new(pool.clone(), config.monthly_budget_micros));
+    ledger.spawn_stale_reservation_sweeper();
+
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "gateway listening");
 
     tracing::warn!("using the mock provider: no real model is called");
-    let ledger = Arc::new(Ledger::new(pool.clone(), config.monthly_budget_micros));
-    ledger.spawn_stale_reservation_sweeper();
-
     let state = AppState::new(
         Arc::new(MockProvider::new()),
         Arc::new(TokenStore::new(pool.clone())),
-        Arc::clone(&ledger),
+        ledger,
+        vault,
         &config.issuer_secret,
     );
     drop(config);

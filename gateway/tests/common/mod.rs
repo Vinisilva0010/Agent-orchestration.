@@ -8,7 +8,10 @@ use axum::{
     http::{Request, StatusCode, header},
     response::Response,
 };
-use gateway::{AppState, app, budget::Ledger, provider::mock::MockProvider, tokens::TokenStore};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use gateway::{
+    AppState, app, budget::Ledger, provider::mock::MockProvider, tokens::TokenStore, vault::Vault,
+};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -22,10 +25,12 @@ pub const TASK_BUDGET_MICROS: u64 = 1_000_000;
 
 /// Builds the gateway on a test database created by `sqlx::test`.
 pub fn test_app(pool: PgPool) -> Router {
+    let master_key = SecretString::from(STANDARD.encode([7u8; 32]));
     app(AppState::new(
         Arc::new(MockProvider::new()),
         Arc::new(TokenStore::new(pool.clone())),
-        Arc::new(Ledger::new(pool, WORKSPACE_BUDGET_MICROS)),
+        Arc::new(Ledger::new(pool.clone(), WORKSPACE_BUDGET_MICROS)),
+        Arc::new(Vault::new(pool, &master_key).unwrap()),
         &SecretString::from(ISSUER_SECRET.to_string()),
     ))
 }
@@ -57,6 +62,11 @@ pub async fn send(
 pub async fn json_body(response: Response) -> Value {
     let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+pub async fn body_text(response: Response) -> String {
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 pub async fn issue_token(app: &Router, task_id: &str) -> String {

@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use secrecy::SecretString;
 use thiserror::Error;
 
-use crate::pricing::parse_usd_to_micros;
+use crate::{pricing::parse_usd_to_micros, vault::validate_master_key};
 
 /// Default bind address. Loopback only: the gateway must not be reachable from
 /// the network unless the deployment explicitly configures it.
@@ -24,6 +24,9 @@ pub struct Config {
     pub monthly_budget_micros: u64,
     /// PostgreSQL connection URL. Contains the database password.
     pub database_url: SecretString,
+    /// Base64 of the 32-byte key that encrypts provider API keys. Never stored
+    /// in the database.
+    pub master_key: SecretString,
 }
 
 /// Raw values as read from the environment.
@@ -33,6 +36,7 @@ pub struct RawConfig {
     pub issuer_secret: Option<String>,
     pub monthly_budget_usd: Option<String>,
     pub database_url: Option<String>,
+    pub master_key: Option<String>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -51,17 +55,22 @@ pub enum ConfigError {
     MissingDatabaseUrl,
     #[error("DATABASE_URL must start with postgres:// or postgresql://")]
     InvalidDatabaseUrl,
+    #[error("GATEWAY_MASTER_KEY is not set")]
+    MissingMasterKey,
+    #[error("GATEWAY_MASTER_KEY must be 32 bytes encoded in base64")]
+    InvalidMasterKey,
 }
 
 impl Config {
-    /// Reads `GATEWAY_BIND`, `GATEWAY_ISSUER_SECRET`, `GATEWAY_MONTHLY_BUDGET_USD`
-    /// and `DATABASE_URL` from the environment.
+    /// Reads `GATEWAY_BIND`, `GATEWAY_ISSUER_SECRET`, `GATEWAY_MONTHLY_BUDGET_USD`,
+    /// `DATABASE_URL` and `GATEWAY_MASTER_KEY` from the environment.
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::from_raw(RawConfig {
             bind: std::env::var("GATEWAY_BIND").ok(),
             issuer_secret: std::env::var("GATEWAY_ISSUER_SECRET").ok(),
             monthly_budget_usd: std::env::var("GATEWAY_MONTHLY_BUDGET_USD").ok(),
             database_url: std::env::var("DATABASE_URL").ok(),
+            master_key: std::env::var("GATEWAY_MASTER_KEY").ok(),
         })
     }
 
@@ -91,20 +100,30 @@ impl Config {
             return Err(ConfigError::InvalidDatabaseUrl);
         }
 
+        let master_key = raw.master_key.ok_or(ConfigError::MissingMasterKey)?;
+        validate_master_key(&master_key).map_err(|_| ConfigError::InvalidMasterKey)?;
+
         Ok(Self {
             bind,
             issuer_secret: SecretString::from(secret),
             monthly_budget_micros,
             database_url: SecretString::from(database_url),
+            master_key: SecretString::from(master_key),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
     use super::*;
 
     const DB_URL: &str = "postgres://user:db-password-123@127.0.0.1:5433/db";
+
+    fn master_key() -> String {
+        STANDARD.encode([9u8; 32])
+    }
 
     fn valid() -> RawConfig {
         RawConfig {
@@ -112,6 +131,7 @@ mod tests {
             issuer_secret: Some("x".repeat(MIN_ISSUER_SECRET_LEN)),
             monthly_budget_usd: Some("50".to_string()),
             database_url: Some(DB_URL.to_string()),
+            master_key: Some(master_key()),
         }
     }
 
@@ -195,10 +215,29 @@ mod tests {
     }
 
     #[test]
+    fn requires_32_byte_master_key() {
+        let missing = Config::from_raw(RawConfig {
+            master_key: None,
+            ..valid()
+        });
+        assert_eq!(missing.unwrap_err(), ConfigError::MissingMasterKey);
+
+        for bad in [STANDARD.encode([9u8; 16]), "not base64 !!".to_string()] {
+            let error = Config::from_raw(RawConfig {
+                master_key: Some(bad),
+                ..valid()
+            })
+            .unwrap_err();
+            assert_eq!(error, ConfigError::InvalidMasterKey);
+        }
+    }
+
+    #[test]
     fn debug_output_does_not_reveal_secrets() {
         let config = Config::from_raw(valid()).unwrap();
         let debug = format!("{config:?}");
         assert!(!debug.contains(&"x".repeat(MIN_ISSUER_SECRET_LEN)));
         assert!(!debug.contains("db-password-123"));
+        assert!(!debug.contains(&master_key()));
     }
 }

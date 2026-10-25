@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::{budget::BudgetError, provider::ProviderError, tokens::TokenError};
+use crate::{budget::BudgetError, provider::ProviderError, tokens::TokenError, vault::VaultError};
 
 /// Error returned to callers. Messages never include credentials, tokens or raw
 /// provider output.
@@ -26,6 +26,22 @@ impl ApiError {
         }
     }
 
+    pub fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+            message: "not found".to_string(),
+        }
+    }
+
+    fn bad_request(message: String) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_request",
+            message,
+        }
+    }
+
     fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -37,14 +53,13 @@ impl ApiError {
 
 impl From<ProviderError> for ApiError {
     fn from(error: ProviderError) -> Self {
-        let (status, code) = match &error {
-            ProviderError::InvalidRequest(_) => (StatusCode::BAD_REQUEST, "invalid_request"),
-            ProviderError::Unavailable(_) => (StatusCode::BAD_GATEWAY, "provider_unavailable"),
-        };
-        Self {
-            status,
-            code,
-            message: error.to_string(),
+        match error {
+            ProviderError::InvalidRequest(_) => Self::bad_request(error.to_string()),
+            ProviderError::Unavailable(_) => Self {
+                status: StatusCode::BAD_GATEWAY,
+                code: "provider_unavailable",
+                message: error.to_string(),
+            },
         }
     }
 }
@@ -52,11 +67,9 @@ impl From<ProviderError> for ApiError {
 impl From<TokenError> for ApiError {
     fn from(error: TokenError) -> Self {
         match error {
-            TokenError::InvalidId(_) | TokenError::InvalidTtl => Self {
-                status: StatusCode::BAD_REQUEST,
-                code: "invalid_request",
-                message: error.to_string(),
-            },
+            TokenError::InvalidId(_) | TokenError::InvalidTtl => {
+                Self::bad_request(error.to_string())
+            }
             TokenError::Unauthorized => Self::unauthorized(),
             TokenError::RandomUnavailable | TokenError::StoreUnavailable => Self::internal(),
         }
@@ -71,12 +84,23 @@ impl From<BudgetError> for ApiError {
                 code: "budget_exceeded",
                 message: error.to_string(),
             },
-            BudgetError::InvalidBudget => Self {
-                status: StatusCode::BAD_REQUEST,
-                code: "invalid_request",
-                message: error.to_string(),
-            },
+            BudgetError::InvalidBudget => Self::bad_request(error.to_string()),
             BudgetError::Unavailable => Self::internal(),
+        }
+    }
+}
+
+impl From<VaultError> for ApiError {
+    fn from(error: VaultError) -> Self {
+        match error {
+            VaultError::InvalidApiKey | VaultError::UnknownProvider => {
+                Self::bad_request(error.to_string())
+            }
+            VaultError::InvalidMasterKey
+            | VaultError::Decryption
+            | VaultError::Encryption
+            | VaultError::RandomUnavailable
+            | VaultError::StoreUnavailable => Self::internal(),
         }
     }
 }

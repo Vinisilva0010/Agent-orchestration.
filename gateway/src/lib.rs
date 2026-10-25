@@ -11,6 +11,7 @@ pub mod pricing;
 pub mod provider;
 mod routes;
 pub mod tokens;
+pub mod vault;
 
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ use provider::Provider;
 use secrecy::{ExposeSecret, SecretString};
 use tokens::TokenStore;
 use tower_http::trace::TraceLayer;
+use vault::Vault;
 
 /// Maximum accepted request body. Model requests with long context can be large,
 /// but anything above this is rejected before it reaches a handler.
@@ -36,6 +38,7 @@ pub struct AppState {
     pub provider: Arc<dyn Provider>,
     pub tokens: Arc<TokenStore>,
     pub ledger: Arc<Ledger>,
+    pub vault: Arc<Vault>,
     /// Hash of the issuer secret. The plain secret is not kept after startup.
     issuer_secret_hash: [u8; 32],
 }
@@ -45,12 +48,14 @@ impl AppState {
         provider: Arc<dyn Provider>,
         tokens: Arc<TokenStore>,
         ledger: Arc<Ledger>,
+        vault: Arc<Vault>,
         issuer_secret: &SecretString,
     ) -> Self {
         Self {
             provider,
             tokens,
             ledger,
+            vault,
             issuer_secret_hash: tokens::sha256(issuer_secret.expose_secret().as_bytes()),
         }
     }
@@ -79,6 +84,11 @@ pub fn app(state: AppState) -> Router {
             put(routes::budget::set_agent_budget),
         )
         .route("/internal/usage", get(routes::budget::workspace_usage))
+        .route("/internal/credentials", get(routes::credentials::list))
+        .route(
+            "/internal/credentials/{provider}",
+            put(routes::credentials::store).delete(routes::credentials::delete),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_issuer,

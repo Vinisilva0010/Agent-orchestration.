@@ -10,6 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/Vinisilva0010/Agent-orchestration."
 
 [workspace.dependencies]
+aes-gcm = { version = "0.11.1", features = ["zeroize"] }
 axum = "0.8.9"
 base64 = "0.23.1"
 getrandom = "0.4.3"
@@ -25,6 +26,7 @@ tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "s
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["trace"] }
 tracing = "0.1.44"
+zeroize = "1.9.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 
 [workspace.lints.rust]
