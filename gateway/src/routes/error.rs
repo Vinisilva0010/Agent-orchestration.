@@ -63,6 +63,11 @@ impl From<ProviderError> for ApiError {
             ProviderError::Unavailable(_) => {
                 Self::new(StatusCode::BAD_GATEWAY, "provider_unavailable", message)
             }
+            ProviderError::TemporarilyUnavailable(_) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_temporarily_unavailable",
+                message,
+            ),
             ProviderError::NotConfigured => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "provider_not_configured",

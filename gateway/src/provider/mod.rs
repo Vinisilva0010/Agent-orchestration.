@@ -167,6 +167,9 @@ pub enum ProviderError {
     InvalidRequest(String),
     #[error("provider unavailable: {0}")]
     Unavailable(String),
+    /// Transient failure (overload, 5xx, connection refused). Safe to retry later.
+    #[error("provider temporarily unavailable: {0}")]
+    TemporarilyUnavailable(String),
     #[error("no API key is configured for this provider")]
     NotConfigured,
     #[error("the provider rejected the stored API key")]

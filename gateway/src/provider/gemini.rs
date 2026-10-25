@@ -37,6 +37,9 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ERROR_DETAIL_CHARS: usize = 300;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Total attempts for a transient failure, including the first one.
+const MAX_ATTEMPTS: u32 = 3;
+const RETRY_BASE: Duration = Duration::from_secs(1);
 
 /// Implicit caching has no write surcharge, so cache writes cost the input rate.
 const fn gemini_price(input: u64, output: u64, cache_read: u64) -> Price {
@@ -108,6 +111,7 @@ pub struct GeminiProvider {
     vault: Arc<Vault>,
     client: Client,
     base_url: String,
+    retry_base: Duration,
 }
 
 impl GeminiProvider {
@@ -136,10 +140,14 @@ impl GeminiProvider {
             vault,
             client,
             base_url,
+            retry_base: RETRY_BASE,
         })
     }
 
-    async fn call(&self, request: &CompletionRequest) -> Result<CompletionResponse, ProviderError> {
+    async fn call_once(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<CompletionResponse, ProviderError> {
         request.validate()?;
         let model = model_for(request.tier);
         let body = serde_json::to_vec(&build_body(request, model)?).map_err(|_| {
@@ -174,7 +182,13 @@ impl GeminiProvider {
                     connect = error.is_connect(),
                     "gemini request failed"
                 );
-                ProviderError::Unavailable("could not reach the provider".to_string())
+                if error.is_connect() {
+                    ProviderError::TemporarilyUnavailable(
+                        "could not connect to the provider".to_string(),
+                    )
+                } else {
+                    ProviderError::Unavailable("could not reach the provider".to_string())
+                }
             })?;
 
         let status = response.status();
@@ -184,6 +198,40 @@ impl GeminiProvider {
         }
         parse_response(&bytes, model)
     }
+}
+
+impl GeminiProvider {
+    /// Retries transient failures with exponential backoff and jitter. Google
+    /// does not bill failed calls, and the budget reservation stays held.
+    async fn call_with_retry(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<CompletionResponse, ProviderError> {
+        let mut attempt = 1;
+        loop {
+            match self.call_once(request).await {
+                Err(ProviderError::TemporarilyUnavailable(_)) if attempt < MAX_ATTEMPTS => {
+                    let delay = backoff(self.retry_base, attempt);
+                    tracing::warn!(
+                        attempt,
+                        delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+                        "gemini temporarily unavailable, retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                    attempt += 1;
+                }
+                other => return other,
+            }
+        }
+    }
+}
+
+/// `base * 2^(attempt - 1)` plus up to 50% random jitter.
+fn backoff(base: Duration, attempt: u32) -> Duration {
+    let exponential = base.saturating_mul(1 << (attempt - 1).min(16));
+    let mut byte = [0u8; 1];
+    let _ = getrandom::fill(&mut byte);
+    exponential + exponential.mul_f64(f64::from(byte[0]) / 510.0)
 }
 
 impl Provider for GeminiProvider {
@@ -199,7 +247,7 @@ impl Provider for GeminiProvider {
     }
 
     fn complete<'a>(&'a self, request: &'a CompletionRequest) -> ProviderFuture<'a> {
-        Box::pin(self.call(request))
+        Box::pin(self.call_with_retry(request))
     }
 }
 
@@ -541,7 +589,14 @@ fn map_error(status: StatusCode, body: &[u8], key: &SecretString) -> ProviderErr
             clean(&message, Some(key))
         ));
     }
-    ProviderError::Unavailable(format!("the provider returned status {}", status.as_u16()))
+    let message = serde_json::from_slice::<ErrorEnvelope>(body)
+        .map(|envelope| envelope.error.message)
+        .unwrap_or_default();
+    ProviderError::TemporarilyUnavailable(format!(
+        "the provider returned status {}: {}",
+        status.as_u16(),
+        clean(&message, Some(key))
+    ))
 }
 
 #[cfg(test)]
@@ -627,7 +682,9 @@ mod tests {
     }
 
     fn provider(vault: Arc<Vault>, server: &MockServer) -> GeminiProvider {
-        GeminiProvider::build(vault, server.uri(), false).unwrap()
+        let mut provider = GeminiProvider::build(vault, server.uri(), false).unwrap();
+        provider.retry_base = Duration::ZERO;
+        provider
     }
 
     #[test]
@@ -858,7 +915,9 @@ mod tests {
             (
                 503,
                 &empty,
-                ProviderError::Unavailable("the provider returned status 503".to_string()),
+                ProviderError::TemporarilyUnavailable(
+                    "the provider returned status 503: no details".to_string(),
+                ),
             ),
         ];
         for (status, body, expected) in cases {
@@ -904,5 +963,58 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, ProviderError::Unavailable(_)));
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn retries_temporary_failures(pool: PgPool) {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(2)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_body()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+        let response = provider(vault(pool, Some(KEY)).await, &server)
+            .complete(&hello())
+            .await
+            .unwrap();
+        assert_eq!(response.stop_reason, StopReason::EndTurn);
+        assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn gives_up_after_max_attempts(pool: PgPool) {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let error = provider(vault(pool, Some(KEY)).await, &server)
+            .complete(&hello())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ProviderError::TemporarilyUnavailable(_)));
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            MAX_ATTEMPTS as usize
+        );
+    }
+
+    #[test]
+    fn backoff_doubles_with_bounded_jitter() {
+        let base = Duration::from_secs(1);
+        for attempt in 1..=3 {
+            let delay = backoff(base, attempt);
+            let floor = base * (1 << (attempt - 1));
+            assert!(
+                delay >= floor && delay <= floor + floor / 2,
+                "{attempt}: {delay:?}"
+            );
+        }
     }
 }
