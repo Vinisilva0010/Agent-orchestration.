@@ -7,13 +7,15 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{AppState, routes::error::ApiError, tokens::DEFAULT_TTL};
+use crate::{AppState, budget::validate_task_budget, routes::error::ApiError, tokens::DEFAULT_TTL};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IssueRequest {
     task_id: String,
     agent_id: String,
+    /// Required. A task without a budget cannot call any model.
+    budget_micros: u64,
     #[serde(default)]
     ttl_seconds: Option<u64>,
 }
@@ -29,14 +31,19 @@ pub async fn issue(
     State(state): State<AppState>,
     Json(request): Json<IssueRequest>,
 ) -> Result<(StatusCode, Json<IssueResponse>), ApiError> {
+    validate_task_budget(request.budget_micros)?;
     let ttl = request.ttl_seconds.map_or(DEFAULT_TTL, Duration::from_secs);
     let issued = state
         .tokens
         .issue(&request.task_id, &request.agent_id, ttl)?;
+    state
+        .ledger
+        .set_task_budget(&request.task_id, request.budget_micros)?;
     tracing::info!(
         task_id = %request.task_id,
         agent_id = %request.agent_id,
         ttl_seconds = ttl.as_secs(),
+        budget_micros = request.budget_micros,
         "task token issued"
     );
     Ok((

@@ -16,9 +16,10 @@ use std::{
 use serde_json::json;
 
 use super::{
-    CompletionRequest, CompletionResponse, ContentBlock, Message, Provider, ProviderError,
-    ProviderFuture, Role, StopReason, ToolSpec, Usage,
+    CompletionRequest, CompletionResponse, ContentBlock, Message, ModelTier, Provider,
+    ProviderError, ProviderFuture, Role, StopReason, ToolSpec, Usage,
 };
+use crate::pricing::Price;
 
 const TOOL_MARKER_PREFIX: &str = "[mock:tool:";
 const TEXT_REPLY: &str = "mock response";
@@ -88,6 +89,31 @@ fn requested_tool(request: &CompletionRequest) -> Option<&ToolSpec> {
 impl Provider for MockProvider {
     fn name(&self) -> &'static str {
         "mock"
+    }
+
+    /// Prices close to common market rates, so tests exercise realistic numbers.
+    /// Cache reads cost 10% of input and cache writes 125% of input.
+    fn price(&self, tier: ModelTier) -> Price {
+        match tier {
+            ModelTier::Small => Price {
+                input: 1_000_000,
+                output: 5_000_000,
+                cache_read: 100_000,
+                cache_write: 1_250_000,
+            },
+            ModelTier::Standard => Price {
+                input: 3_000_000,
+                output: 15_000_000,
+                cache_read: 300_000,
+                cache_write: 3_750_000,
+            },
+            ModelTier::Large => Price {
+                input: 5_000_000,
+                output: 25_000_000,
+                cache_read: 500_000,
+                cache_write: 6_250_000,
+            },
+        }
     }
 
     fn complete<'a>(&'a self, request: &'a CompletionRequest) -> ProviderFuture<'a> {

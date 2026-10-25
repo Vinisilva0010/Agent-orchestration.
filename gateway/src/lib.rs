@@ -4,7 +4,9 @@
 //! short-lived, task-scoped token. Keys never leave this process.
 
 mod auth;
+pub mod budget;
 pub mod config;
+pub mod pricing;
 pub mod provider;
 mod routes;
 pub mod tokens;
@@ -15,8 +17,9 @@ use axum::{
     Router,
     extract::DefaultBodyLimit,
     middleware,
-    routing::{get, post},
+    routing::{get, post, put},
 };
+use budget::Ledger;
 use provider::Provider;
 use secrecy::{ExposeSecret, SecretString};
 use tokens::TokenStore;
@@ -31,6 +34,7 @@ pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 pub struct AppState {
     pub provider: Arc<dyn Provider>,
     pub tokens: Arc<TokenStore>,
+    pub ledger: Arc<Ledger>,
     /// Hash of the issuer secret. The plain secret is not kept after startup.
     issuer_secret_hash: [u8; 32],
 }
@@ -39,11 +43,13 @@ impl AppState {
     pub fn new(
         provider: Arc<dyn Provider>,
         tokens: Arc<TokenStore>,
+        ledger: Arc<Ledger>,
         issuer_secret: &SecretString,
     ) -> Self {
         Self {
             provider,
             tokens,
+            ledger,
             issuer_secret_hash: tokens::sha256(issuer_secret.expose_secret().as_bytes()),
         }
     }
@@ -67,6 +73,11 @@ pub fn app(state: AppState) -> Router {
             "/internal/tasks/{task_id}/revoke",
             post(routes::tokens::revoke),
         )
+        .route(
+            "/internal/agents/{agent_id}/budget",
+            put(routes::budget::set_agent_budget),
+        )
+        .route("/internal/usage", get(routes::budget::workspace_usage))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_issuer,

@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::pricing::Price;
+
 /// Upper bound for output tokens accepted from callers.
 pub const MAX_OUTPUT_TOKENS_LIMIT: u32 = 32_768;
 
@@ -159,5 +161,7 @@ pub type ProviderFuture<'a> =
 /// expose them through requests, responses or errors.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &'static str;
+    /// Price of the model this provider uses for a tier.
+    fn price(&self, tier: ModelTier) -> Price;
     fn complete<'a>(&'a self, request: &'a CompletionRequest) -> ProviderFuture<'a>;
 }

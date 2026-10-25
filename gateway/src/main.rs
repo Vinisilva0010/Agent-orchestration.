@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use gateway::{AppState, app, config::Config, provider::mock::MockProvider, tokens::TokenStore};
+use gateway::{
+    AppState, app, budget::Ledger, config::Config, provider::mock::MockProvider, tokens::TokenStore,
+};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
@@ -20,6 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::new(
         Arc::new(MockProvider::new()),
         Arc::new(TokenStore::new()),
+        Arc::new(Ledger::new(config.monthly_budget_micros)),
         &config.issuer_secret,
     );
     drop(config);

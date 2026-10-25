@@ -1,3 +1,4 @@
+pub mod budget;
 pub mod error;
 pub mod health;
 pub mod messages;

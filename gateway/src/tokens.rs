@@ -62,7 +62,7 @@ pub enum TokenError {
     Unauthorized,
 }
 
-fn validate_id(value: &str, field: &'static str) -> Result<(), TokenError> {
+pub(crate) fn validate_id(value: &str, field: &'static str) -> Result<(), TokenError> {
     let valid = !value.is_empty()
         && value.len() <= MAX_ID_LEN
         && value

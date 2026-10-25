@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::{provider::ProviderError, tokens::TokenError};
+use crate::{budget::BudgetError, provider::ProviderError, tokens::TokenError};
 
 /// Error returned to callers. Messages never include credentials, tokens or raw
 /// provider output.
@@ -59,6 +59,24 @@ impl From<TokenError> for ApiError {
             },
             TokenError::Unauthorized => Self::unauthorized(),
             TokenError::RandomUnavailable | TokenError::StoreUnavailable => Self::internal(),
+        }
+    }
+}
+
+impl From<BudgetError> for ApiError {
+    fn from(error: BudgetError) -> Self {
+        match error {
+            BudgetError::NoTaskBudget | BudgetError::Exceeded(_) => Self {
+                status: StatusCode::PAYMENT_REQUIRED,
+                code: "budget_exceeded",
+                message: error.to_string(),
+            },
+            BudgetError::InvalidBudget => Self {
+                status: StatusCode::BAD_REQUEST,
+                code: "invalid_request",
+                message: error.to_string(),
+            },
+            BudgetError::Unavailable => Self::internal(),
         }
     }
 }

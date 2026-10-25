@@ -48,7 +48,7 @@ async fn issues_token_with_expiry() {
         "POST",
         ISSUE,
         Some(common::ISSUER_SECRET),
-        Some(json!({ "task_id": "task-1", "agent_id": "agent-1", "ttl_seconds": 60 })),
+        Some(json!({ "task_id": "task-1", "agent_id": "agent-1", "budget_micros": 1000, "ttl_seconds": 60 })),
     )
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
@@ -62,9 +62,9 @@ async fn issues_token_with_expiry() {
 async fn rejects_invalid_issue_requests() {
     let app = common::test_app();
     let cases = [
-        json!({ "task_id": "has space", "agent_id": "agent-1" }),
-        json!({ "task_id": "task-1", "agent_id": "agent-1", "ttl_seconds": 0 }),
-        json!({ "task_id": "task-1", "agent_id": "agent-1", "ttl_seconds": 3601 }),
+        json!({ "task_id": "has space", "agent_id": "agent-1", "budget_micros": 1000 }),
+        json!({ "task_id": "task-1", "agent_id": "agent-1", "budget_micros": 1000, "ttl_seconds": 0 }),
+        json!({ "task_id": "task-1", "agent_id": "agent-1", "budget_micros": 1000, "ttl_seconds": 3601 }),
     ];
     for body in cases {
         let response =
@@ -77,7 +77,7 @@ async fn rejects_invalid_issue_requests() {
         "POST",
         ISSUE,
         Some(common::ISSUER_SECRET),
-        Some(json!({ "task_id": "task-1", "agent_id": "agent-1", "budget": 999 })),
+        Some(json!({ "task_id": "task-1", "agent_id": "agent-1", "budget_micros": 1000, "extra": 1 })),
     )
     .await;
     assert_eq!(unknown_field.status(), StatusCode::UNPROCESSABLE_ENTITY);
