@@ -31,8 +31,8 @@ pub async fn create_message(
 ) -> Result<Json<MessageResponse>, ApiError> {
     request.validate()?;
 
-    let price = state.provider.price(request.tier)?;
     let max_input_tokens = serde_json::to_vec(&request).map_or(u64::MAX, |b| b.len() as u64);
+    let price = state.provider.price(request.tier, max_input_tokens)?;
     let reserved = price.max_cost_micros(max_input_tokens, u64::from(request.max_output_tokens));
     let reservation = state.ledger.reserve(&grant, reserved).await?;
 
@@ -53,7 +53,7 @@ pub async fn create_message(
         }
     };
 
-    let cost = price.cost_micros(&completion.usage);
+    let cost = state.provider.cost_micros(&completion, &price);
     let record = UsageRecord {
         provider: completion.provider.clone(),
         model: completion.model.clone(),

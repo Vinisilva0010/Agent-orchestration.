@@ -4,7 +4,9 @@ use gateway::{
     AppState, app,
     budget::Ledger,
     config::{Config, ProviderKind},
-    provider::{Provider, gemini::GeminiProvider, mock::MockProvider},
+    provider::{
+        Provider, anthropic::AnthropicProvider, gemini::GeminiProvider, mock::MockProvider,
+    },
     tokens::TokenStore,
     vault::Vault,
 };
@@ -32,6 +34,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ProviderKind::Mock => {
             tracing::warn!("using the mock provider: no real model is called");
             Arc::new(MockProvider::new())
+        }
+        ProviderKind::Anthropic => {
+            tracing::info!("using the Anthropic provider");
+            Arc::new(AnthropicProvider::new(Arc::clone(&vault))?)
         }
         ProviderKind::Gemini => {
             let [small, standard, large] = config.gemini_models.ids();

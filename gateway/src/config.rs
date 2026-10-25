@@ -22,6 +22,7 @@ pub enum ProviderKind {
     /// Deterministic local provider. No network, no key.
     Mock,
     Gemini,
+    Anthropic,
 }
 
 #[derive(Debug)]
@@ -76,7 +77,7 @@ pub enum ConfigError {
     MissingMasterKey,
     #[error("GATEWAY_MASTER_KEY must be 32 bytes encoded in base64")]
     InvalidMasterKey,
-    #[error("GATEWAY_PROVIDER must be mock or gemini, got: {0}")]
+    #[error("GATEWAY_PROVIDER must be mock, gemini or anthropic, got: {0}")]
     InvalidProvider(String),
     #[error("unknown Gemini model (not in the price catalog): {0}")]
     UnknownGeminiModel(String),
@@ -134,6 +135,7 @@ impl Config {
         let provider = match raw.provider.as_deref().map(str::trim) {
             None | Some("mock") => ProviderKind::Mock,
             Some("gemini") => ProviderKind::Gemini,
+            Some("anthropic") => ProviderKind::Anthropic,
             Some(other) => return Err(ConfigError::InvalidProvider(other.to_string())),
         };
 
@@ -288,6 +290,13 @@ mod tests {
         })
         .unwrap();
         assert_eq!(gemini.provider, ProviderKind::Gemini);
+
+        let anthropic = Config::from_raw(RawConfig {
+            provider: Some("anthropic".to_string()),
+            ..valid()
+        })
+        .unwrap();
+        assert_eq!(anthropic.provider, ProviderKind::Anthropic);
 
         let unknown = Config::from_raw(RawConfig {
             provider: Some("openai".to_string()),

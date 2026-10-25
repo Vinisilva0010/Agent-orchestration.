@@ -3,7 +3,9 @@
 //! The agents process always speaks this format. The gateway translates it to
 //! each provider, so agents never depend on a specific vendor API.
 
+pub mod anthropic;
 pub mod gemini;
+mod http;
 pub mod mock;
 
 use std::{future::Future, pin::Pin};
@@ -68,6 +70,17 @@ pub enum ContentBlock {
         content: String,
         #[serde(default)]
         is_error: bool,
+    },
+    /// Model reasoning returned by some providers (Anthropic thinking blocks).
+    /// Must be sent back unchanged, in order, with the turn it came from.
+    /// `redacted_data` holds encrypted reasoning the provider did not show.
+    Reasoning {
+        #[serde(default)]
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        redacted_data: Option<String>,
     },
 }
 
@@ -185,8 +198,14 @@ pub type ProviderFuture<'a> =
 /// expose them through requests, responses or errors.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &'static str;
-    /// Current price of the model this provider uses for a tier. Fails when no
-    /// price is known, so a call is never made without a cost bound.
-    fn price(&self, tier: ModelTier) -> Result<Price, ProviderError>;
+    /// Price used to reserve budget for a call whose input cannot exceed
+    /// `max_input_tokens`. Fails when no price is known, so a call is never
+    /// made without a cost bound.
+    fn price(&self, tier: ModelTier, max_input_tokens: u64) -> Result<Price, ProviderError>;
+    /// Actual cost of a completed call. Never above the reservation made with
+    /// `reserved`. Defaults to pricing the usage at the reservation price.
+    fn cost_micros(&self, completion: &CompletionResponse, reserved: &Price) -> u64 {
+        reserved.cost_micros(&completion.usage)
+    }
     fn complete<'a>(&'a self, request: &'a CompletionRequest) -> ProviderFuture<'a>;
 }

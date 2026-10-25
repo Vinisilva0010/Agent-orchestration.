@@ -14,14 +14,14 @@
 use std::{collections::HashMap, fmt::Write as _, sync::Arc, time::Duration};
 
 use reqwest::{
-    Client, Response, StatusCode,
+    Client, StatusCode,
     header::{CONTENT_TYPE, HeaderValue},
-    redirect::Policy,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+use super::http::{RETRY_BASE, build_client, clean, read_limited, with_retry};
 use super::{
     CompletionRequest, CompletionResponse, ContentBlock, ModelTier, Provider, ProviderError,
     ProviderFuture, Role, StopReason, Usage,
@@ -33,13 +33,6 @@ use crate::{
 
 const API_BASE: &str = "https://generativelanguage.googleapis.com";
 const API_KEY_HEADER: &str = "x-goog-api-key";
-const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_ERROR_DETAIL_CHARS: usize = 300;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Total attempts for a transient failure, including the first one.
-const MAX_ATTEMPTS: u32 = 3;
-const RETRY_BASE: Duration = Duration::from_secs(1);
 
 /// Implicit caching has no write surcharge, so cache writes cost the input rate.
 const fn gemini_price(input: u64, output: u64, cache_read: u64) -> Price {
@@ -205,22 +198,7 @@ impl GeminiProvider {
     }
 
     fn build(vault: Arc<Vault>, base_url: String, https_only: bool) -> Result<Self, ProviderError> {
-        // reqwest is built without a bundled crypto backend. Use ring, the same
-        // backend used for database TLS. Ignored if one is already installed.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(Policy::none())
-            .https_only(https_only)
-            .user_agent(concat!(
-                "agent-orchestration-gateway/",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .build()
-            .map_err(|_| {
-                ProviderError::Unavailable("could not build the HTTP client".to_string())
-            })?;
+        let client = build_client(https_only)?;
         Ok(Self {
             vault,
             client,
@@ -287,37 +265,12 @@ impl GeminiProvider {
 }
 
 impl GeminiProvider {
-    /// Retries transient failures with exponential backoff and jitter. Google
-    /// does not bill failed calls, and the budget reservation stays held.
     async fn call_with_retry(
         &self,
         request: &CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
-        let mut attempt = 1;
-        loop {
-            match self.call_once(request).await {
-                Err(ProviderError::TemporarilyUnavailable(_)) if attempt < MAX_ATTEMPTS => {
-                    let delay = backoff(self.retry_base, attempt);
-                    tracing::warn!(
-                        attempt,
-                        delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-                        "gemini temporarily unavailable, retrying"
-                    );
-                    tokio::time::sleep(delay).await;
-                    attempt += 1;
-                }
-                other => return other,
-            }
-        }
+        with_retry(self.retry_base, "gemini", || self.call_once(request)).await
     }
-}
-
-/// `base * 2^(attempt - 1)` plus up to 50% random jitter.
-fn backoff(base: Duration, attempt: u32) -> Duration {
-    let exponential = base.saturating_mul(1 << (attempt - 1).min(16));
-    let mut byte = [0u8; 1];
-    let _ = getrandom::fill(&mut byte);
-    exponential + exponential.mul_f64(f64::from(byte[0]) / 510.0)
 }
 
 impl Provider for GeminiProvider {
@@ -325,7 +278,7 @@ impl Provider for GeminiProvider {
         "gemini"
     }
 
-    fn price(&self, tier: ModelTier) -> Result<Price, ProviderError> {
+    fn price(&self, tier: ModelTier, _max_input_tokens: u64) -> Result<Price, ProviderError> {
         let model = self.models.for_tier(tier);
         price_on(model.prices, today_yyyymmdd()).ok_or_else(|| {
             ProviderError::Unavailable(format!("no price is known for {}", model.id))
@@ -378,6 +331,7 @@ fn build_body(request: &CompletionRequest, model: &ModelSpec) -> Result<Value, P
                     );
                     attach_signature(&mut part, signature.as_ref());
                 }
+                ContentBlock::Reasoning { .. } => continue,
                 ContentBlock::ToolResult {
                     tool_use_id,
                     content,
@@ -617,44 +571,6 @@ fn parse_response(body: &[u8], model: &ModelSpec) -> Result<CompletionResponse, 
     })
 }
 
-async fn read_limited(mut response: Response) -> Result<Vec<u8>, ProviderError> {
-    let too_large = || ProviderError::Unavailable("the provider response is too large".to_string());
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err(too_large());
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| {
-        ProviderError::Unavailable("the provider response was interrupted".to_string())
-    })? {
-        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err(too_large());
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
-/// Removes control characters, truncates, and redacts the key if present.
-fn clean(text: &str, key: Option<&SecretString>) -> String {
-    let redacted = match key {
-        Some(key) => text.replace(key.expose_secret(), "[REDACTED]"),
-        None => text.to_string(),
-    };
-    let cleaned: String = redacted
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(MAX_ERROR_DETAIL_CHARS)
-        .collect();
-    if cleaned.is_empty() {
-        "no details".to_string()
-    } else {
-        cleaned
-    }
-}
-
 /// Google answers 400 with reason `API_KEY_INVALID` for a bad key, so that case
 /// is detected from the body as well as from 401 and 403.
 fn map_error(status: StatusCode, body: &[u8], key: &SecretString) -> ProviderError {
@@ -695,7 +611,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::provider::{Message, SystemBlock, ToolSpec};
+    use crate::provider::{
+        Message, SystemBlock, ToolSpec,
+        http::{MAX_ATTEMPTS, MAX_RESPONSE_BYTES},
+    };
 
     const KEY: &str = "AIza-test-not-a-real-key-0123456789";
     const STANDARD_PATH: &str = "/v1beta/models/gemini-3.8-flash:generateContent";
@@ -1092,19 +1011,6 @@ mod tests {
     }
 
     #[test]
-    fn backoff_doubles_with_bounded_jitter() {
-        let base = Duration::from_secs(1);
-        for attempt in 1..=3 {
-            let delay = backoff(base, attempt);
-            let floor = base * (1 << (attempt - 1));
-            assert!(
-                delay >= floor && delay <= floor + floor / 2,
-                "{attempt}: {delay:?}"
-            );
-        }
-    }
-
-    #[test]
     fn tier_models_accept_only_catalog_ids() {
         assert_eq!(
             TierModels::default().ids(),
@@ -1144,6 +1050,6 @@ mod tests {
         req.tier = ModelTier::Small;
         let response = gemini.complete(&req).await.unwrap();
         assert_eq!(response.model, "gemini-3.5-flash-lite");
-        assert_eq!(gemini.price(ModelTier::Small).unwrap().input, 300_000);
+        assert_eq!(gemini.price(ModelTier::Small, 0).unwrap().input, 300_000);
     }
 }

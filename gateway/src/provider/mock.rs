@@ -47,6 +47,7 @@ fn block_tokens(block: &ContentBlock) -> u64 {
             estimate_tokens(name) + estimate_tokens(&input.to_string())
         }
         ContentBlock::ToolResult { content, .. } => estimate_tokens(content),
+        ContentBlock::Reasoning { text, .. } => estimate_tokens(text),
     }
 }
 
@@ -93,7 +94,7 @@ impl Provider for MockProvider {
 
     /// Prices close to common market rates, so tests exercise realistic numbers.
     /// Cache reads cost 10% of input and cache writes 125% of input.
-    fn price(&self, tier: ModelTier) -> Result<Price, ProviderError> {
+    fn price(&self, tier: ModelTier, _max_input_tokens: u64) -> Result<Price, ProviderError> {
         Ok(match tier {
             ModelTier::Small => Price {
                 input: 1_000_000,
