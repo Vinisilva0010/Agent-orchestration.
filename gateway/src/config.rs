@@ -5,7 +5,9 @@ use std::net::SocketAddr;
 use secrecy::SecretString;
 use thiserror::Error;
 
-use crate::{pricing::parse_usd_to_micros, vault::validate_master_key};
+use crate::{
+    pricing::parse_usd_to_micros, provider::gemini::TierModels, vault::validate_master_key,
+};
 
 /// Default bind address. Loopback only: the gateway must not be reachable from
 /// the network unless the deployment explicitly configures it.
@@ -36,6 +38,8 @@ pub struct Config {
     /// in the database.
     pub master_key: SecretString,
     pub provider: ProviderKind,
+    /// Gemini model used for each tier.
+    pub gemini_models: TierModels,
 }
 
 /// Raw values as read from the environment.
@@ -47,6 +51,9 @@ pub struct RawConfig {
     pub database_url: Option<String>,
     pub master_key: Option<String>,
     pub provider: Option<String>,
+    pub gemini_model_small: Option<String>,
+    pub gemini_model_standard: Option<String>,
+    pub gemini_model_large: Option<String>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -71,6 +78,8 @@ pub enum ConfigError {
     InvalidMasterKey,
     #[error("GATEWAY_PROVIDER must be mock or gemini, got: {0}")]
     InvalidProvider(String),
+    #[error("unknown Gemini model (not in the price catalog): {0}")]
+    UnknownGeminiModel(String),
 }
 
 impl Config {
@@ -85,6 +94,9 @@ impl Config {
             database_url: std::env::var("DATABASE_URL").ok(),
             master_key: std::env::var("GATEWAY_MASTER_KEY").ok(),
             provider: std::env::var("GATEWAY_PROVIDER").ok(),
+            gemini_model_small: std::env::var("GATEWAY_GEMINI_MODEL_SMALL").ok(),
+            gemini_model_standard: std::env::var("GATEWAY_GEMINI_MODEL_STANDARD").ok(),
+            gemini_model_large: std::env::var("GATEWAY_GEMINI_MODEL_LARGE").ok(),
         })
     }
 
@@ -125,6 +137,13 @@ impl Config {
             Some(other) => return Err(ConfigError::InvalidProvider(other.to_string())),
         };
 
+        let gemini_models = TierModels::from_ids(
+            raw.gemini_model_small.as_deref(),
+            raw.gemini_model_standard.as_deref(),
+            raw.gemini_model_large.as_deref(),
+        )
+        .map_err(ConfigError::UnknownGeminiModel)?;
+
         Ok(Self {
             bind,
             issuer_secret: SecretString::from(secret),
@@ -132,6 +151,7 @@ impl Config {
             database_url: SecretString::from(database_url),
             master_key: SecretString::from(master_key),
             provider,
+            gemini_models,
         })
     }
 }
@@ -156,6 +176,9 @@ mod tests {
             database_url: Some(DB_URL.to_string()),
             master_key: Some(master_key()),
             provider: None,
+            gemini_model_small: None,
+            gemini_model_standard: None,
+            gemini_model_large: None,
         }
     }
 
@@ -272,6 +295,19 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(unknown, ConfigError::InvalidProvider("openai".to_string()));
+    }
+
+    #[test]
+    fn rejects_gemini_models_outside_the_catalog() {
+        let error = Config::from_raw(RawConfig {
+            gemini_model_standard: Some("gemini-9-unknown".to_string()),
+            ..valid()
+        })
+        .unwrap_err();
+        assert_eq!(
+            error,
+            ConfigError::UnknownGeminiModel("gemini-9-unknown".to_string())
+        );
     }
 
     #[test]

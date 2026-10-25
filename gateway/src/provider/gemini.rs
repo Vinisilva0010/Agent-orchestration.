@@ -54,6 +54,7 @@ const fn gemini_price(input: u64, output: u64, cache_read: u64) -> Price {
 /// Concrete model behind a tier. Prices are micro-dollars per million tokens,
 /// from https://ai.google.dev/gemini-api/docs/pricing (checked 2026-10-25),
 /// including the changes Google has already announced.
+#[derive(Debug)]
 struct ModelSpec {
     id: &'static str,
     thinking_level: &'static str,
@@ -99,11 +100,92 @@ static LARGE_MODEL: ModelSpec = ModelSpec {
     ],
 };
 
-fn model_for(tier: ModelTier) -> &'static ModelSpec {
-    match tier {
-        ModelTier::Small => &SMALL_MODEL,
-        ModelTier::Standard => &STANDARD_MODEL,
-        ModelTier::Large => &LARGE_MODEL,
+static FLASH_LITE_3_5: ModelSpec = ModelSpec {
+    id: "gemini-3.5-flash-lite",
+    thinking_level: "MINIMAL",
+    prices: &[PriceChange {
+        from_yyyymmdd: 0,
+        price: gemini_price(300_000, 2_500_000, 30_000),
+    }],
+};
+
+static FLASH_3_6: ModelSpec = ModelSpec {
+    id: "gemini-3.6-flash",
+    thinking_level: "LOW",
+    prices: &[
+        PriceChange {
+            from_yyyymmdd: 0,
+            price: gemini_price(750_000, 3_750_000, 75_000),
+        },
+        PriceChange {
+            from_yyyymmdd: 20270101,
+            price: gemini_price(1_500_000, 7_500_000, 150_000),
+        },
+    ],
+};
+
+/// Every model the gateway can price. Only these can be configured.
+static CATALOG: [&ModelSpec; 5] = [
+    &SMALL_MODEL,
+    &FLASH_LITE_3_5,
+    &FLASH_3_6,
+    &STANDARD_MODEL,
+    &LARGE_MODEL,
+];
+
+fn find_model(id: &str) -> Option<&'static ModelSpec> {
+    CATALOG.iter().copied().find(|model| model.id == id)
+}
+
+/// Model used for each tier, chosen from [`CATALOG`].
+#[derive(Debug, Clone, Copy)]
+pub struct TierModels {
+    small: &'static ModelSpec,
+    standard: &'static ModelSpec,
+    large: &'static ModelSpec,
+}
+
+impl Default for TierModels {
+    fn default() -> Self {
+        Self {
+            small: &SMALL_MODEL,
+            standard: &STANDARD_MODEL,
+            large: &LARGE_MODEL,
+        }
+    }
+}
+
+impl TierModels {
+    /// Overrides the default model of each tier. `None` or an empty value keeps
+    /// the default. Fails with the first id not in the catalog.
+    pub fn from_ids(
+        small: Option<&str>,
+        standard: Option<&str>,
+        large: Option<&str>,
+    ) -> Result<Self, String> {
+        let defaults = Self::default();
+        let pick = |id: Option<&str>, default: &'static ModelSpec| match id.map(str::trim) {
+            None | Some("") => Ok(default),
+            Some(id) => find_model(id).ok_or_else(|| id.to_string()),
+        };
+        Ok(Self {
+            small: pick(small, defaults.small)?,
+            standard: pick(standard, defaults.standard)?,
+            large: pick(large, defaults.large)?,
+        })
+    }
+
+    /// Model ids for small, standard and large, in that order.
+    pub fn ids(&self) -> [&'static str; 3] {
+        [self.small.id, self.standard.id, self.large.id]
+    }
+
+    fn for_tier(&self, tier: ModelTier) -> &'static ModelSpec {
+        match tier {
+            ModelTier::Small => self.small,
+            ModelTier::Standard => self.standard,
+            ModelTier::Large => self.large,
+        }
     }
 }
 
@@ -112,11 +194,14 @@ pub struct GeminiProvider {
     client: Client,
     base_url: String,
     retry_base: Duration,
+    models: TierModels,
 }
 
 impl GeminiProvider {
-    pub fn new(vault: Arc<Vault>) -> Result<Self, ProviderError> {
-        Self::build(vault, API_BASE.to_string(), true)
+    pub fn new(vault: Arc<Vault>, models: TierModels) -> Result<Self, ProviderError> {
+        let mut provider = Self::build(vault, API_BASE.to_string(), true)?;
+        provider.models = models;
+        Ok(provider)
     }
 
     fn build(vault: Arc<Vault>, base_url: String, https_only: bool) -> Result<Self, ProviderError> {
@@ -141,6 +226,7 @@ impl GeminiProvider {
             client,
             base_url,
             retry_base: RETRY_BASE,
+            models: TierModels::default(),
         })
     }
 
@@ -149,7 +235,7 @@ impl GeminiProvider {
         request: &CompletionRequest,
     ) -> Result<CompletionResponse, ProviderError> {
         request.validate()?;
-        let model = model_for(request.tier);
+        let model = self.models.for_tier(request.tier);
         let body = serde_json::to_vec(&build_body(request, model)?).map_err(|_| {
             ProviderError::InvalidRequest("request could not be encoded".to_string())
         })?;
@@ -240,7 +326,7 @@ impl Provider for GeminiProvider {
     }
 
     fn price(&self, tier: ModelTier) -> Result<Price, ProviderError> {
-        let model = model_for(tier);
+        let model = self.models.for_tier(tier);
         price_on(model.prices, today_yyyymmdd()).ok_or_else(|| {
             ProviderError::Unavailable(format!("no price is known for {}", model.id))
         })
@@ -1016,5 +1102,48 @@ mod tests {
                 "{attempt}: {delay:?}"
             );
         }
+    }
+
+    #[test]
+    fn tier_models_accept_only_catalog_ids() {
+        assert_eq!(
+            TierModels::default().ids(),
+            [
+                "gemini-3.1-flash-lite",
+                "gemini-3.8-flash",
+                "gemini-4-argon"
+            ]
+        );
+        let custom = TierModels::from_ids(Some("gemini-3.5-flash-lite"), Some(" "), None).unwrap();
+        assert_eq!(
+            custom.ids(),
+            [
+                "gemini-3.5-flash-lite",
+                "gemini-3.8-flash",
+                "gemini-4-argon"
+            ]
+        );
+        assert_eq!(
+            TierModels::from_ids(None, Some("gemini-9-unknown"), None).unwrap_err(),
+            "gemini-9-unknown"
+        );
+    }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn uses_the_configured_model_for_a_tier(pool: PgPool) {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1beta/models/gemini-3.5-flash-lite:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_body()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut gemini = provider(vault(pool, Some(KEY)).await, &server);
+        gemini.models = TierModels::from_ids(Some("gemini-3.5-flash-lite"), None, None).unwrap();
+        let mut req = hello();
+        req.tier = ModelTier::Small;
+        let response = gemini.complete(&req).await.unwrap();
+        assert_eq!(response.model, "gemini-3.5-flash-lite");
+        assert_eq!(gemini.price(ModelTier::Small).unwrap().input, 300_000);
     }
 }

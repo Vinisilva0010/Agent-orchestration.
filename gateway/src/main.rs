@@ -34,8 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(MockProvider::new())
         }
         ProviderKind::Gemini => {
-            tracing::info!("using the Gemini provider");
-            Arc::new(GeminiProvider::new(Arc::clone(&vault))?)
+            let [small, standard, large] = config.gemini_models.ids();
+            tracing::info!(small, standard, large, "using the Gemini provider");
+            Arc::new(GeminiProvider::new(
+                Arc::clone(&vault),
+                config.gemini_models,
+            )?)
         }
     };
 
