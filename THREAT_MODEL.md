@@ -1,6 +1,6 @@
 # Threat Model
 
-Status: Phase 0 baseline. Reviewed at the end of every phase.
+Status: Phase 1 in progress (gateway). Reviewed at the end of every phase.
 Reference: OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10).
 
 ## 1. Assets
@@ -63,3 +63,28 @@ Rules:
   encryption at rest, least privilege for each service and documented hardening.
 - Model providers process prompt content under their own terms; customers choose the provider.
 - Gemini free-tier tests prove behavior, not production cost with other providers.
+- The vault master key is read from an environment variable. Root on the host, or read
+  access to the env file, exposes it. The installer (Phase 8) writes it with mode 600
+  and owned by the gateway service user.
+- If a provider call succeeds but recording its usage fails, the gateway logs an error
+  for manual reconciliation and still returns the result. Phase 2 turns this into a
+  persisted pending item shown to admins.
+- The gateway uses the same database role for migrations and for queries. Phase 3
+  splits them so the runtime role cannot alter schema or bypass append-only triggers.
+- Master key rotation is not implemented yet. Ciphertexts carry a key_version so a
+  rotation command can re-encrypt them (Phase 8 or 9).
+
+## 7. Implemented controls (gateway)
+
+| Control | Where | Tested by |
+|---|---|---|
+| Provider keys encrypted with AES-256-GCM; master key never stored in the database | `gateway/src/vault.rs` | `vault` unit tests, live check for plaintext in the database |
+| Fresh random nonce per write; provider and key version bound as associated data | `gateway/src/vault.rs` | `database_never_holds_the_plaintext`, `ciphertext_moved_to_another_provider_fails` |
+| No route returns a provider key; credential routes require the issuer secret | `gateway/src/routes/credentials.rs` | `tests/credentials.rs` |
+| Task tokens stored only as SHA-256 hashes, 15 min default and 1 h maximum lifetime, revocable | `gateway/src/tokens.rs` | `tests/tokens.rs` |
+| Same response for missing, expired and revoked tokens; constant-time issuer check | `gateway/src/auth.rs` | `tests/tokens.rs` |
+| Maximum possible cost reserved before each provider call, with row locks, so parallel calls cannot overspend | `gateway/src/budget.rs` | parallel reservation test (10 x 20 on a budget of 100) |
+| Abandoned reservations released after 15 minutes | `gateway/src/budget.rs` | sweeper test |
+| Append-only usage log enforced by database triggers | `gateway/migrations/` | `tests/db.rs` |
+| Secrets wrapped in SecretString; headers never logged; Debug output redacted | `gateway/src/config.rs`, `gateway/src/lib.rs` | config tests, live log checks |
+| Gateway binds to loopback by default; request bodies capped at 8 MiB | `gateway/src/config.rs`, `gateway/src/lib.rs` | config tests |
