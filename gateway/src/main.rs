@@ -1,4 +1,6 @@
-use gateway::{app, config::Config};
+use std::sync::Arc;
+
+use gateway::{AppState, app, config::Config, provider::mock::MockProvider};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
@@ -14,7 +16,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "gateway listening");
 
-    axum::serve(listener, app())
+    tracing::warn!("using the mock provider: no real model is called");
+    let state = AppState::new(Arc::new(MockProvider::new()));
+
+    axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
