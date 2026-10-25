@@ -1,19 +1,48 @@
-//! Provider gateway: the only component allowed to hold provider API keys.
+use gateway::{app, config::Config};
+use tracing_subscriber::{EnvFilter, fmt};
 
-fn service_name() -> &'static str {
-    "gateway"
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    fmt()
+        .json()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
+    let config = Config::from_env()?;
+    let listener = tokio::net::TcpListener::bind(config.bind).await?;
+    tracing::info!(bind = %config.bind, "gateway listening");
+
+    axum::serve(listener, app())
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    tracing::info!("gateway stopped");
+    Ok(())
 }
 
-fn main() {
-    println!("{} starting", service_name());
-}
+/// Resolves on Ctrl+C or SIGTERM so in-flight requests can finish.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
 
-    #[test]
-    fn reports_service_name() {
-        assert_eq!(service_name(), "gateway");
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
     }
 }
