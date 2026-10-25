@@ -1,0 +1,5 @@
+# Project-local Cargo settings. Does not affect the global Cargo configuration.
+# The development machine has 3.7 GB of RAM, so parallel jobs are limited
+# to avoid running out of memory during compilation.
+[build]
+jobs = 2
