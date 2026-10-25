@@ -7,6 +7,7 @@ pub mod anthropic;
 pub mod gemini;
 mod http;
 pub mod mock;
+pub mod openai;
 
 use std::{future::Future, pin::Pin};
 

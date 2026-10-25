@@ -23,6 +23,7 @@ pub enum ProviderKind {
     Mock,
     Gemini,
     Anthropic,
+    OpenAi,
 }
 
 #[derive(Debug)]
@@ -77,7 +78,7 @@ pub enum ConfigError {
     MissingMasterKey,
     #[error("GATEWAY_MASTER_KEY must be 32 bytes encoded in base64")]
     InvalidMasterKey,
-    #[error("GATEWAY_PROVIDER must be mock, gemini or anthropic, got: {0}")]
+    #[error("GATEWAY_PROVIDER must be mock, gemini, anthropic or openai, got: {0}")]
     InvalidProvider(String),
     #[error("unknown Gemini model (not in the price catalog): {0}")]
     UnknownGeminiModel(String),
@@ -136,6 +137,7 @@ impl Config {
             None | Some("mock") => ProviderKind::Mock,
             Some("gemini") => ProviderKind::Gemini,
             Some("anthropic") => ProviderKind::Anthropic,
+            Some("openai") => ProviderKind::OpenAi,
             Some(other) => return Err(ConfigError::InvalidProvider(other.to_string())),
         };
 
@@ -298,12 +300,19 @@ mod tests {
         .unwrap();
         assert_eq!(anthropic.provider, ProviderKind::Anthropic);
 
-        let unknown = Config::from_raw(RawConfig {
+        let openai = Config::from_raw(RawConfig {
             provider: Some("openai".to_string()),
             ..valid()
         })
+        .unwrap();
+        assert_eq!(openai.provider, ProviderKind::OpenAi);
+
+        let unknown = Config::from_raw(RawConfig {
+            provider: Some("mistral".to_string()),
+            ..valid()
+        })
         .unwrap_err();
-        assert_eq!(unknown, ConfigError::InvalidProvider("openai".to_string()));
+        assert_eq!(unknown, ConfigError::InvalidProvider("mistral".to_string()));
     }
 
     #[test]

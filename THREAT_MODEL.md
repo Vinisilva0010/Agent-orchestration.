@@ -71,6 +71,13 @@ Rules:
   persisted pending item shown to admins.
 - The gateway uses the same database role for migrations and for queries. Phase 3
   splits them so the runtime role cannot alter schema or bypass append-only triggers.
+- OpenAI and Anthropic providers are tested only against a local fake server (no paid
+  key). For OpenAI, three assumptions await a live call: input_tokens includes cached
+  and written tokens, GPT-6 accepts reasoning effort `low`, and the GPT-6 reasoning
+  item shape. Until then the long-prompt surcharge is applied above 272k tokens so
+  spending is over-counted rather than under-counted.
+- Free-tier Gemini keys let Google use prompts and responses to improve its products,
+  with human review. Free tier is for development only; never send company data.
 - Master key rotation is not implemented yet. Ciphertexts carry a key_version so a
   rotation command can re-encrypt them (Phase 8 or 9).
 

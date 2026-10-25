@@ -6,6 +6,7 @@ use gateway::{
     config::{Config, ProviderKind},
     provider::{
         Provider, anthropic::AnthropicProvider, gemini::GeminiProvider, mock::MockProvider,
+        openai::OpenAiProvider,
     },
     tokens::TokenStore,
     vault::Vault,
@@ -34,6 +35,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ProviderKind::Mock => {
             tracing::warn!("using the mock provider: no real model is called");
             Arc::new(MockProvider::new())
+        }
+        ProviderKind::OpenAi => {
+            tracing::info!("using the OpenAI provider");
+            Arc::new(OpenAiProvider::new(Arc::clone(&vault))?)
         }
         ProviderKind::Anthropic => {
             tracing::info!("using the Anthropic provider");
