@@ -34,32 +34,48 @@ impl ApiError {
         }
     }
 
-    fn bad_request(message: String) -> Self {
+    fn new(status: StatusCode, code: &'static str, message: String) -> Self {
         Self {
-            status: StatusCode::BAD_REQUEST,
-            code: "invalid_request",
+            status,
+            code,
             message,
         }
     }
 
+    fn bad_request(message: String) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_request", message)
+    }
+
     fn internal() -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            code: "internal_error",
-            message: "internal error".to_string(),
-        }
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+            "internal error".to_string(),
+        )
     }
 }
 
 impl From<ProviderError> for ApiError {
     fn from(error: ProviderError) -> Self {
+        let message = error.to_string();
         match error {
-            ProviderError::InvalidRequest(_) => Self::bad_request(error.to_string()),
-            ProviderError::Unavailable(_) => Self {
-                status: StatusCode::BAD_GATEWAY,
-                code: "provider_unavailable",
-                message: error.to_string(),
-            },
+            ProviderError::InvalidRequest(_) => Self::bad_request(message),
+            ProviderError::Unavailable(_) => {
+                Self::new(StatusCode::BAD_GATEWAY, "provider_unavailable", message)
+            }
+            ProviderError::NotConfigured => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_not_configured",
+                message,
+            ),
+            ProviderError::CredentialRejected => {
+                Self::new(StatusCode::BAD_GATEWAY, "provider_auth_failed", message)
+            }
+            ProviderError::RateLimited => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "provider_rate_limited",
+                message,
+            ),
         }
     }
 }
@@ -79,11 +95,11 @@ impl From<TokenError> for ApiError {
 impl From<BudgetError> for ApiError {
     fn from(error: BudgetError) -> Self {
         match error {
-            BudgetError::NoTaskBudget | BudgetError::Exceeded(_) => Self {
-                status: StatusCode::PAYMENT_REQUIRED,
-                code: "budget_exceeded",
-                message: error.to_string(),
-            },
+            BudgetError::NoTaskBudget | BudgetError::Exceeded(_) => Self::new(
+                StatusCode::PAYMENT_REQUIRED,
+                "budget_exceeded",
+                error.to_string(),
+            ),
             BudgetError::InvalidBudget => Self::bad_request(error.to_string()),
             BudgetError::Unavailable => Self::internal(),
         }

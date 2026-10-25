@@ -2,6 +2,8 @@
 
 [graph]
 all-features = true
+# The product runs on Linux servers only.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 
 [advisories]
 yanked = "deny"

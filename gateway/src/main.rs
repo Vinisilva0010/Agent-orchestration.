@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use gateway::{
-    AppState, app, budget::Ledger, config::Config, provider::mock::MockProvider,
-    tokens::TokenStore, vault::Vault,
+    AppState, app,
+    budget::Ledger,
+    config::{Config, ProviderKind},
+    provider::{Provider, gemini::GeminiProvider, mock::MockProvider},
+    tokens::TokenStore,
+    vault::Vault,
 };
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -24,12 +28,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ledger = Arc::new(Ledger::new(pool.clone(), config.monthly_budget_micros));
     ledger.spawn_stale_reservation_sweeper();
 
+    let provider: Arc<dyn Provider> = match config.provider {
+        ProviderKind::Mock => {
+            tracing::warn!("using the mock provider: no real model is called");
+            Arc::new(MockProvider::new())
+        }
+        ProviderKind::Gemini => {
+            tracing::info!("using the Gemini provider");
+            Arc::new(GeminiProvider::new(Arc::clone(&vault))?)
+        }
+    };
+
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!(bind = %config.bind, "gateway listening");
 
-    tracing::warn!("using the mock provider: no real model is called");
     let state = AppState::new(
-        Arc::new(MockProvider::new()),
+        provider,
         Arc::new(TokenStore::new(pool.clone())),
         ledger,
         vault,

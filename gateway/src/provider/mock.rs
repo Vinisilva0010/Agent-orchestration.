@@ -42,7 +42,7 @@ pub fn estimate_tokens(text: &str) -> u64 {
 
 fn block_tokens(block: &ContentBlock) -> u64 {
     match block {
-        ContentBlock::Text { text } => estimate_tokens(text),
+        ContentBlock::Text { text, .. } => estimate_tokens(text),
         ContentBlock::ToolUse { name, input, .. } => {
             estimate_tokens(name) + estimate_tokens(&input.to_string())
         }
@@ -76,7 +76,7 @@ fn requested_tool(request: &CompletionRequest) -> Option<&ToolSpec> {
         .rev()
         .find(|m| m.role == Role::User)?;
     last_user.content.iter().find_map(|block| match block {
-        ContentBlock::Text { text } => {
+        ContentBlock::Text { text, .. } => {
             let start = text.find(TOOL_MARKER_PREFIX)? + TOOL_MARKER_PREFIX.len();
             let end = text[start..].find(']')? + start;
             let name = &text[start..end];
@@ -93,8 +93,8 @@ impl Provider for MockProvider {
 
     /// Prices close to common market rates, so tests exercise realistic numbers.
     /// Cache reads cost 10% of input and cache writes 125% of input.
-    fn price(&self, tier: ModelTier) -> Price {
-        match tier {
+    fn price(&self, tier: ModelTier) -> Result<Price, ProviderError> {
+        Ok(match tier {
             ModelTier::Small => Price {
                 input: 1_000_000,
                 output: 5_000_000,
@@ -113,7 +113,7 @@ impl Provider for MockProvider {
                 cache_read: 500_000,
                 cache_write: 6_250_000,
             },
-        }
+        })
     }
 
     fn complete<'a>(&'a self, request: &'a CompletionRequest) -> ProviderFuture<'a> {
@@ -155,12 +155,14 @@ impl Provider for MockProvider {
                         id: format!("mock_call_{}", tool.name),
                         name: tool.name.clone(),
                         input: json!({}),
+                        signature: None,
                     }],
                     StopReason::ToolUse,
                 ),
                 None => (
                     vec![ContentBlock::Text {
                         text: TEXT_REPLY.to_string(),
+                        signature: None,
                     }],
                     StopReason::EndTurn,
                 ),
@@ -190,6 +192,7 @@ mod tests {
             role: Role::User,
             content: vec![ContentBlock::Text {
                 text: text.to_string(),
+                signature: None,
             }],
         }
     }

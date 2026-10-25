@@ -14,6 +14,14 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8081";
 /// Minimum length of the secret shared between the main server and the gateway.
 pub const MIN_ISSUER_SECRET_LEN: usize = 32;
 
+/// Model provider used for every call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    /// Deterministic local provider. No network, no key.
+    Mock,
+    Gemini,
+}
+
 #[derive(Debug)]
 pub struct Config {
     pub bind: SocketAddr,
@@ -27,6 +35,7 @@ pub struct Config {
     /// Base64 of the 32-byte key that encrypts provider API keys. Never stored
     /// in the database.
     pub master_key: SecretString,
+    pub provider: ProviderKind,
 }
 
 /// Raw values as read from the environment.
@@ -37,6 +46,7 @@ pub struct RawConfig {
     pub monthly_budget_usd: Option<String>,
     pub database_url: Option<String>,
     pub master_key: Option<String>,
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -59,11 +69,14 @@ pub enum ConfigError {
     MissingMasterKey,
     #[error("GATEWAY_MASTER_KEY must be 32 bytes encoded in base64")]
     InvalidMasterKey,
+    #[error("GATEWAY_PROVIDER must be mock or gemini, got: {0}")]
+    InvalidProvider(String),
 }
 
 impl Config {
     /// Reads `GATEWAY_BIND`, `GATEWAY_ISSUER_SECRET`, `GATEWAY_MONTHLY_BUDGET_USD`,
-    /// `DATABASE_URL` and `GATEWAY_MASTER_KEY` from the environment.
+    /// `DATABASE_URL`, `GATEWAY_MASTER_KEY` and `GATEWAY_PROVIDER` from the
+    /// environment.
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::from_raw(RawConfig {
             bind: std::env::var("GATEWAY_BIND").ok(),
@@ -71,6 +84,7 @@ impl Config {
             monthly_budget_usd: std::env::var("GATEWAY_MONTHLY_BUDGET_USD").ok(),
             database_url: std::env::var("DATABASE_URL").ok(),
             master_key: std::env::var("GATEWAY_MASTER_KEY").ok(),
+            provider: std::env::var("GATEWAY_PROVIDER").ok(),
         })
     }
 
@@ -96,12 +110,20 @@ impl Config {
         .ok_or(ConfigError::InvalidMonthlyBudget)?;
 
         let database_url = raw.database_url.ok_or(ConfigError::MissingDatabaseUrl)?;
-        if !(database_url.starts_with("postgres://") || database_url.starts_with("postgresql://")) {
+        let is_postgres =
+            database_url.starts_with("postgres://") || database_url.starts_with("postgresql://");
+        if !is_postgres {
             return Err(ConfigError::InvalidDatabaseUrl);
         }
 
         let master_key = raw.master_key.ok_or(ConfigError::MissingMasterKey)?;
         validate_master_key(&master_key).map_err(|_| ConfigError::InvalidMasterKey)?;
+
+        let provider = match raw.provider.as_deref().map(str::trim) {
+            None | Some("mock") => ProviderKind::Mock,
+            Some("gemini") => ProviderKind::Gemini,
+            Some(other) => return Err(ConfigError::InvalidProvider(other.to_string())),
+        };
 
         Ok(Self {
             bind,
@@ -109,6 +131,7 @@ impl Config {
             monthly_budget_micros,
             database_url: SecretString::from(database_url),
             master_key: SecretString::from(master_key),
+            provider,
         })
     }
 }
@@ -132,6 +155,7 @@ mod tests {
             monthly_budget_usd: Some("50".to_string()),
             database_url: Some(DB_URL.to_string()),
             master_key: Some(master_key()),
+            provider: None,
         }
     }
 
@@ -141,6 +165,7 @@ mod tests {
         assert!(config.bind.ip().is_loopback());
         assert_eq!(config.bind.port(), 8081);
         assert_eq!(config.monthly_budget_micros, 50_000_000);
+        assert_eq!(config.provider, ProviderKind::Mock);
     }
 
     #[test]
@@ -230,6 +255,23 @@ mod tests {
             .unwrap_err();
             assert_eq!(error, ConfigError::InvalidMasterKey);
         }
+    }
+
+    #[test]
+    fn parses_provider_choice() {
+        let gemini = Config::from_raw(RawConfig {
+            provider: Some("gemini".to_string()),
+            ..valid()
+        })
+        .unwrap();
+        assert_eq!(gemini.provider, ProviderKind::Gemini);
+
+        let unknown = Config::from_raw(RawConfig {
+            provider: Some("openai".to_string()),
+            ..valid()
+        })
+        .unwrap_err();
+        assert_eq!(unknown, ConfigError::InvalidProvider("openai".to_string()));
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! The agents process always speaks this format. The gateway translates it to
 //! each provider, so agents never depend on a specific vendor API.
 
+pub mod gemini;
 pub mod mock;
 
 use std::{future::Future, pin::Pin};
@@ -42,16 +43,25 @@ pub enum Role {
     Assistant,
 }
 
+/// One piece of a message.
+///
+/// `signature` is an opaque value some providers attach to their output (for
+/// example Gemini thought signatures). Callers must send it back unchanged
+/// with the same block in the next request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     Text {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
     },
     ToolUse {
         id: String,
         name: String,
         input: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
     },
     ToolResult {
         tool_use_id: String,
@@ -121,6 +131,7 @@ impl CompletionRequest {
 }
 
 /// Token usage as billed by the provider, split by cache behaviour.
+/// `output_tokens` includes reasoning ("thinking") tokens.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u64,
@@ -135,6 +146,10 @@ pub enum StopReason {
     EndTurn,
     ToolUse,
     MaxTokens,
+    /// The provider stopped for safety, recitation or a similar content rule.
+    Refused,
+    /// The provider stopped for a reason the gateway does not map.
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -152,6 +167,12 @@ pub enum ProviderError {
     InvalidRequest(String),
     #[error("provider unavailable: {0}")]
     Unavailable(String),
+    #[error("no API key is configured for this provider")]
+    NotConfigured,
+    #[error("the provider rejected the stored API key")]
+    CredentialRejected,
+    #[error("the provider rate limit was reached; try again later")]
+    RateLimited,
 }
 
 pub type ProviderFuture<'a> =
@@ -161,7 +182,8 @@ pub type ProviderFuture<'a> =
 /// expose them through requests, responses or errors.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &'static str;
-    /// Price of the model this provider uses for a tier.
-    fn price(&self, tier: ModelTier) -> Price;
+    /// Current price of the model this provider uses for a tier. Fails when no
+    /// price is known, so a call is never made without a cost bound.
+    fn price(&self, tier: ModelTier) -> Result<Price, ProviderError>;
     fn complete<'a>(&'a self, request: &'a CompletionRequest) -> ProviderFuture<'a>;
 }

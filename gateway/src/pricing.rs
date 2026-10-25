@@ -3,6 +3,8 @@
 //! Integer math avoids floating-point rounding, and every cost is rounded up so
 //! the gateway never under-counts spending.
 
+use time::{Date, OffsetDateTime};
+
 use crate::provider::Usage;
 
 pub const MICROS_PER_USD: u64 = 1_000_000;
@@ -15,6 +17,13 @@ pub struct Price {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
+}
+
+/// A price that applies from a UTC date (as `YYYYMMDD`) onwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PriceChange {
+    pub from_yyyymmdd: u32,
+    pub price: Price,
 }
 
 fn per_million_rounded_up(total: u128) -> u64 {
@@ -41,6 +50,24 @@ impl Price {
     }
 }
 
+/// Price in effect on `day`: the latest change that started on or before it.
+pub fn price_on(changes: &[PriceChange], day: u32) -> Option<Price> {
+    changes
+        .iter()
+        .filter(|change| change.from_yyyymmdd <= day)
+        .max_by_key(|change| change.from_yyyymmdd)
+        .map(|change| change.price)
+}
+
+pub fn yyyymmdd(date: Date) -> u32 {
+    let year = u32::try_from(date.year()).unwrap_or(0);
+    year * 10_000 + u32::from(u8::from(date.month())) * 100 + u32::from(date.day())
+}
+
+pub fn today_yyyymmdd() -> u32 {
+    yyyymmdd(OffsetDateTime::now_utc().date())
+}
+
 /// Parses a dollar amount such as `50` or `12.5` into micro-dollars.
 /// Rejects negative values, signs, more than six decimals and anything else.
 pub fn parse_usd_to_micros(value: &str) -> Option<u64> {
@@ -61,6 +88,8 @@ pub fn parse_usd_to_micros(value: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use time::Month;
+
     use super::*;
 
     const STANDARD: Price = Price {
@@ -105,6 +134,34 @@ mod tests {
     fn max_cost_prices_input_at_highest_rate() {
         assert_eq!(STANDARD.max_cost_micros(1_000, 0), 3_750);
         assert_eq!(STANDARD.max_cost_micros(0, 1_000), 15_000);
+    }
+
+    #[test]
+    fn picks_the_price_in_effect_on_a_day() {
+        let cheaper = Price {
+            input: 1,
+            ..STANDARD
+        };
+        let changes = [
+            PriceChange {
+                from_yyyymmdd: 20260101,
+                price: cheaper,
+            },
+            PriceChange {
+                from_yyyymmdd: 20261201,
+                price: STANDARD,
+            },
+        ];
+        assert_eq!(price_on(&changes, 20251231), None);
+        assert_eq!(price_on(&changes, 20260101), Some(cheaper));
+        assert_eq!(price_on(&changes, 20261130), Some(cheaper));
+        assert_eq!(price_on(&changes, 20261201), Some(STANDARD));
+    }
+
+    #[test]
+    fn formats_dates_as_yyyymmdd() {
+        let date = Date::from_calendar_date(2026, Month::December, 1).unwrap();
+        assert_eq!(yyyymmdd(date), 20261201);
     }
 
     #[test]
