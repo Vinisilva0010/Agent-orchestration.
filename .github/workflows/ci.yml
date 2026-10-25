@@ -79,6 +79,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install locked dependencies
         run: npm ci
+      - name: Check dependency tree is valid
+        run: npm ls --all > /dev/null
       - name: Audit dependencies
         run: npm audit --audit-level=high
       - name: Lint
