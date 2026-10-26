@@ -114,20 +114,8 @@ impl GatewayClient {
         ))
         .map_err(|_| config("gateway URL is not valid"))?;
 
-        // reqwest is built without a bundled crypto backend; use ring, as the
-        // gateway does. Ignored if one is already installed.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(Policy::none())
-            .no_proxy()
-            .https_only(base.scheme() == "https")
-            .build()
-            .map_err(|_| config("could not build the HTTP client"))?;
-
         Ok(Self {
-            http,
+            http: build_http(&base)?,
             messages_url,
             token: task_token,
         })
@@ -160,25 +148,92 @@ impl GatewayClient {
             return serde_json::from_slice(&bytes).map_err(|_| GatewayError::InvalidResponse);
         }
 
-        let (code, message) = serde_json::from_slice::<ErrorEnvelope>(&bytes)
-            .map(|envelope| (envelope.error.code, envelope.error.message))
-            .unwrap_or_else(|_| ("unknown".to_string(), String::new()));
-        let message: String = message.chars().take(MAX_ERROR_CHARS).collect();
-        let status = status.as_u16();
-        Err(match status {
-            402 => GatewayError::BudgetExceeded(message),
-            429 | 502 | 503 => GatewayError::ProviderUnavailable {
-                status,
-                code,
-                message,
-            },
-            _ => GatewayError::Rejected {
-                status,
-                code,
-                message,
-            },
-        })
+        Err(error_from(status.as_u16(), &bytes))
     }
+}
+
+/// Client without redirects or proxies, so a token is never sent elsewhere.
+fn build_http(base: &Url) -> Result<Client, GatewayError> {
+    // reqwest is built without a bundled crypto backend; use ring, as the
+    // gateway does. Ignored if one is already installed.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .redirect(Policy::none())
+        .no_proxy()
+        .https_only(base.scheme() == "https")
+        .build()
+        .map_err(|_| config("could not build the HTTP client"))
+}
+
+fn error_from(status: u16, bytes: &[u8]) -> GatewayError {
+    let (code, message) = serde_json::from_slice::<ErrorEnvelope>(bytes)
+        .map(|envelope| (envelope.error.code, envelope.error.message))
+        .unwrap_or_else(|_| ("unknown".to_string(), String::new()));
+    let message: String = message.chars().take(MAX_ERROR_CHARS).collect();
+    match status {
+        402 => GatewayError::BudgetExceeded(message),
+        429 | 502 | 503 => GatewayError::ProviderUnavailable {
+            status,
+            code,
+            message,
+        },
+        _ => GatewayError::Rejected {
+            status,
+            code,
+            message,
+        },
+    }
+}
+
+#[derive(Deserialize)]
+struct Issued {
+    token: String,
+}
+
+/// Asks the gateway for a task token. Only the server side holds the issuer
+/// secret; the token it returns is the only credential the agent loop gets.
+/// Issuing again for the same task keeps the amount already spent.
+pub async fn issue_task_token(
+    base_url: &str,
+    issuer_secret: &SecretString,
+    task_id: &str,
+    agent_id: &str,
+    budget_micros: u64,
+) -> Result<SecretString, GatewayError> {
+    let base = validate_base_url(base_url)?;
+    let url = Url::parse(&format!(
+        "{}/internal/tasks/tokens",
+        base.as_str().trim_end_matches('/')
+    ))
+    .map_err(|_| config("gateway URL is not valid"))?;
+    let mut auth = HeaderValue::from_str(&format!("Bearer {}", issuer_secret.expose_secret()))
+        .map_err(|_| config("issuer secret contains invalid characters"))?;
+    auth.set_sensitive(true);
+    let body = serde_json::to_vec(&serde_json::json!({
+        "task_id": task_id,
+        "agent_id": agent_id,
+        "budget_micros": budget_micros,
+    }))
+    .map_err(|_| config("request could not be encoded"))?;
+
+    let response = build_http(&base)?
+        .post(url)
+        .header(AUTHORIZATION, auth)
+        .header(CONTENT_TYPE, "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| GatewayError::Unreachable)?;
+    let status = response.status();
+    let bytes = read_limited(response).await?;
+    if status != StatusCode::CREATED {
+        return Err(error_from(status.as_u16(), &bytes));
+    }
+    let issued: Issued =
+        serde_json::from_slice(&bytes).map_err(|_| GatewayError::InvalidResponse)?;
+    Ok(SecretString::from(issued.token))
 }
 
 async fn read_limited(mut response: Response) -> Result<Vec<u8>, GatewayError> {

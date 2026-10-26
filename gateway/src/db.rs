@@ -17,5 +17,8 @@ pub async fn connect(database_url: &SecretString) -> Result<PgPool, sqlx::Error>
 
 /// Applies the migrations embedded at compile time from `gateway/migrations`.
 pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
-    sqlx::migrate!("./migrations").run(pool).await
+    // The engine's migrations live in the same database; ignore them here.
+    let mut migrator = sqlx::migrate!("./migrations");
+    migrator.set_ignore_missing(true);
+    migrator.run(pool).await
 }
