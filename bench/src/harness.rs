@@ -102,24 +102,58 @@ pub async fn run_trial(config: &BenchConfig, task: &Task, trial: u32) -> TrialRe
     }
 }
 
-/// Runs every task `trials` times, waiting `pace` between trials.
+/// True when a trial was cut off by the provider's rate limit. That is an
+/// infrastructure limit, not a mistake of the agent, so the trial is repeated.
+pub fn rate_limited(result: &TrialResult) -> bool {
+    result.status == RunStatus::Failed
+        && result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("provider_rate_limited"))
+}
+
+pub const MAX_RATE_LIMIT_RETRIES: u32 = 3;
+
+pub struct BenchRun {
+    pub results: Vec<TrialResult>,
+    /// Trials cut off by the rate limit and repeated. Their cost is real, so it
+    /// is reported separately instead of being dropped.
+    pub discarded: Vec<TrialResult>,
+}
+
+/// Runs every task `trials` times, waiting `pace` between trials and
+/// `rate_limit_wait` before repeating a rate-limited trial.
 pub async fn run_all(
     config: &BenchConfig,
     tasks: &[Task],
     trials: u32,
     pace: Duration,
+    rate_limit_wait: Duration,
     mut on_result: impl FnMut(&TrialResult),
-) -> Vec<TrialResult> {
-    let mut results = Vec::new();
+) -> BenchRun {
+    let mut run = BenchRun {
+        results: Vec::new(),
+        discarded: Vec::new(),
+    };
     for trial in 1..=trials {
         for task in tasks {
-            if !results.is_empty() && !pace.is_zero() {
+            if !run.results.is_empty() && !pace.is_zero() {
                 tokio::time::sleep(pace).await;
             }
-            let result = run_trial(config, task, trial).await;
+            let mut retries = 0;
+            let result = loop {
+                let result = run_trial(config, task, trial).await;
+                if rate_limited(&result) && retries < MAX_RATE_LIMIT_RETRIES {
+                    retries += 1;
+                    run.discarded.push(result);
+                    tokio::time::sleep(rate_limit_wait).await;
+                    continue;
+                }
+                break result;
+            };
             on_result(&result);
-            results.push(result);
+            run.results.push(result);
         }
     }
-    results
+    run
 }

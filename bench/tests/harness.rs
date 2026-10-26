@@ -1,5 +1,5 @@
 use bench::{
-    harness::{BenchConfig, run_trial},
+    harness::{BenchConfig, run_all, run_trial},
     tasks,
 };
 use engine::agent::RunStatus;
@@ -76,4 +76,53 @@ async fn closing_the_wrong_ticket_is_not_solved() {
     let result = run_trial(&config(&server), task, 1).await;
     assert_eq!(result.status, RunStatus::Completed);
     assert!(!result.success);
+}
+
+#[tokio::test]
+async fn rate_limited_trials_are_repeated_not_counted() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/tasks/tokens"))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(json!({ "token": "tsk_bench", "expires_at": 0 })),
+        )
+        .mount(&server)
+        .await;
+    let limited = ResponseTemplate::new(429).set_body_json(
+        json!({ "error": { "code": "provider_rate_limited", "message": "slow down" } }),
+    );
+    let call = json!([{ "type": "tool_use", "id": "call_1", "name": "close_ticket",
+        "input": { "id": 4, "resolution": "A new password reset link was sent." } }]);
+    let replies = [
+        limited,
+        reply(call, "tool_use"),
+        reply(json!([{ "type": "text", "text": "Closed." }]), "end_turn"),
+    ];
+    for (index, reply) in replies.into_iter().enumerate() {
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(reply)
+            .up_to_n_times(1)
+            .with_priority(u8::try_from(index + 1).unwrap())
+            .mount(&server)
+            .await;
+    }
+    let all = tasks::all();
+    let selected: Vec<_> = all
+        .into_iter()
+        .filter(|t| t.id == "close-reset-email")
+        .collect();
+    let run = run_all(
+        &config(&server),
+        &selected,
+        1,
+        std::time::Duration::ZERO,
+        std::time::Duration::ZERO,
+        |_| {},
+    )
+    .await;
+    assert_eq!(run.discarded.len(), 1);
+    assert_eq!(run.results.len(), 1);
+    assert!(run.results[0].success);
 }

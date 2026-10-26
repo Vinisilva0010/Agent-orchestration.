@@ -107,16 +107,16 @@ async fn main() -> ExitCode {
         return ExitCode::from(64);
     }
 
-    let results = run_all(
+    let run = run_all(
         &config,
         &selected,
         trials,
         Duration::from_millis(pace_ms),
-        |result| {
-            println!("{}", serde_json::to_string(result).unwrap_or_default());
-        },
+        Duration::from_secs(65),
+        |result| println!("{}", serde_json::to_string(result).unwrap_or_default()),
     )
     .await;
+    let results = run.results;
 
     println!();
     println!("task                     solved     rate  reliability   cost");
@@ -129,5 +129,13 @@ async fn main() -> ExitCode {
         print_summary(task.id, &summarize(&rows, trials), trials);
     }
     print_summary("ALL", &summarize(&results, trials), trials);
+    if !run.discarded.is_empty() {
+        let cost: u64 = run.discarded.iter().map(|r| r.cost_micros).sum();
+        println!(
+            "rate limited and repeated: {} trials, ${} not counted above",
+            run.discarded.len(),
+            usd(cost)
+        );
+    }
     ExitCode::SUCCESS
 }
