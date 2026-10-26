@@ -57,28 +57,6 @@ jobs:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
-  python:
-    name: Python (ruff, tests)
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: agents
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version: "0.12.13"
-      - name: Install locked dependencies
-        run: uv sync --locked
-      - name: Lint
-        run: uv run ruff check .
-      - name: Check formatting
-        run: uv run ruff format --check .
-      - name: Tests
-        run: uv run pytest
-
   web:
     name: Web (audit, lint, tests, build)
     runs-on: ubuntu-24.04

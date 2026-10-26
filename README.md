@@ -10,7 +10,7 @@ A self-hosted workspace where people and AI agents work together.
 
 ## Status
 
-Phase 0 — project setup. Not ready for use.
+Phase 2 in progress: Rust agent engine done, token economy next. Not ready for use.
 
 ## Repository layout
 
@@ -19,7 +19,8 @@ Phase 0 — project setup. Not ready for use.
 | `gateway/` | Rust     | Provider gateway: holds the key, meters cost    |
 | `server/`  | Rust     | Main server: auth, chat, realtime events, audit |
 | `sandbox/` | Rust     | Isolated executor for code and file actions     |
-| `agents/`  | Python   | Agent orchestration (LangGraph)                 |
+| `engine/`  | Rust     | Agent engine: agent loop, approvals, durable runs |
+| `protocol/` | Rust    | Wire format shared by engine and gateway      |
 | `web/`     | TypeScript | Web interface (Next.js)                       |
 | `installer/` | Shell  | One-command installer                           |
 | `docs/`    | Markdown | Documentation site                              |
