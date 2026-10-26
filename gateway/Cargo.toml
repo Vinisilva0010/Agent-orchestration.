@@ -14,6 +14,7 @@ aes-gcm.workspace = true
 axum.workspace = true
 base64.workspace = true
 getrandom.workspace = true
+protocol.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 secrecy.workspace = true

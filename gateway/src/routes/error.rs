@@ -5,7 +5,12 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::{budget::BudgetError, provider::ProviderError, tokens::TokenError, vault::VaultError};
+use crate::{
+    budget::BudgetError,
+    provider::{ProviderError, ValidationError},
+    tokens::TokenError,
+    vault::VaultError,
+};
 
 /// Error returned to callers. Messages never include credentials, tokens or raw
 /// provider output.
@@ -82,6 +87,12 @@ impl From<ProviderError> for ApiError {
                 message,
             ),
         }
+    }
+}
+
+impl From<ValidationError> for ApiError {
+    fn from(error: ValidationError) -> Self {
+        ProviderError::from(error).into()
     }
 }
 
