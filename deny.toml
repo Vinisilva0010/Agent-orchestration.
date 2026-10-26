@@ -25,6 +25,8 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Path dependencies are allowed only between the private crates of this workspace.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
