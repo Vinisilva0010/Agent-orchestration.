@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["protocol", "gateway", "server", "sandbox"]
+members = ["protocol", "gateway", "server", "sandbox", "engine"]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,6 +17,7 @@ base64 = "0.23.1"
 getrandom = "0.4.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+schemars = "1.2.3"
 secrecy = "0.10.3"
 sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-native-roots", "postgres", "macros", "migrate", "time"] }
