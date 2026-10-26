@@ -1,20 +1,26 @@
-name: CI
+name: Rust
 
 on:
   push:
     branches: [main]
+    paths-ignore: ["web/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["web/**", "**/*.md"]
+  # New advisories appear without any change here, so check them weekly too.
+  schedule:
+    - cron: "17 9 * * 1"
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   rust:
     name: Rust (fmt, clippy, tests)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -41,6 +47,17 @@ jobs:
         run: |
           rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
           rustup default 1.98.1
+      - name: Cache compiled dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: rust-${{ runner.os }}-1.98.1-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-1.98.1-
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Clippy
@@ -56,31 +73,3 @@ jobs:
         with:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-
-  web:
-    name: Web (audit, lint, tests, build)
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Check dependency tree is valid
-        run: npm ls --all > /dev/null
-      - name: Audit dependencies
-        run: npm audit --audit-level=high
-      - name: Lint
-        run: npm run lint
-      - name: Tests
-        run: npm test
-      - name: Build
-        run: npm run build
