@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["protocol", "gateway", "server", "sandbox", "engine"]
+members = ["protocol", "gateway", "server", "sandbox", "engine", "bench"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/Vinisilva0010/Agent-orchestration."
 
 [workspace.dependencies]
+engine = { path = "engine" }
 protocol = { path = "protocol" }
 aes-gcm = { version = "0.11.1", features = ["zeroize"] }
 axum = "0.8.9"

@@ -1,0 +1,24 @@
+[package]
+name = "bench"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Measures billed cost per successfully completed agent task."
+
+[lints]
+workspace = true
+
+[dependencies]
+engine.workspace = true
+protocol.workspace = true
+schemars.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true

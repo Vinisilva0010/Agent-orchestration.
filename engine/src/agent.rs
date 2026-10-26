@@ -17,7 +17,7 @@
 use std::{collections::HashMap, future::Future};
 
 use protocol::{
-    CompletionRequest, ContentBlock, Message, ModelTier, Role, StopReason, SystemBlock,
+    CompletionRequest, ContentBlock, Message, ModelTier, Role, StopReason, SystemBlock, Usage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -100,6 +100,9 @@ pub struct RunState {
     pub final_text: String,
     pub error: Option<String>,
     pub cost_micros: u64,
+    /// Tokens used by every model call of the run, by kind.
+    #[serde(default)]
+    pub usage: Usage,
     /// Ids of pending calls a person approved. `Some` once a decision is made.
     #[serde(default)]
     pub approved: Option<Vec<String>>,
@@ -122,6 +125,7 @@ impl RunState {
             final_text: String::new(),
             error: None,
             cost_micros: 0,
+            usage: Usage::default(),
             approved: None,
         }
     }
@@ -312,6 +316,19 @@ impl Agent {
             Ok(response) => {
                 state.steps += 1;
                 state.cost_micros = state.cost_micros.saturating_add(response.cost_micros);
+                let used = response.completion.usage;
+                state.usage.input_tokens =
+                    state.usage.input_tokens.saturating_add(used.input_tokens);
+                state.usage.output_tokens =
+                    state.usage.output_tokens.saturating_add(used.output_tokens);
+                state.usage.cache_read_tokens = state
+                    .usage
+                    .cache_read_tokens
+                    .saturating_add(used.cache_read_tokens);
+                state.usage.cache_write_tokens = state
+                    .usage
+                    .cache_write_tokens
+                    .saturating_add(used.cache_write_tokens);
                 let content = response.completion.content;
                 let calls: Vec<ToolCall> = content
                     .iter()
