@@ -1,6 +1,6 @@
 # Threat Model
 
-Status: Phase 1 complete (gateway and agent prototype). Reviewed at the end of every phase.
+Status: Phase 2 in progress (Rust agent engine done; token economy next). Reviewed at the end of every phase.
 Reference: OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10).
 
 ## 1. Assets
@@ -15,13 +15,18 @@ Reference: OWASP Top 10 for Agentic Applications 2026 (ASI01–ASI10).
 | User accounts and sessions | Control over agents and approvals |
 
 ## 2. Trust boundaries
+Browser / Telegram --(untrusted input)----> server + engine (Rust)
+server + engine (Rust) --(task-scoped token)--> gateway (Rust) [only holder of provider keys]
+gateway (Rust) --(HTTPS)--------------> model providers
+server + engine (Rust) --(request)------------> sandbox (Rust) -> containers (tools)
 
 Rules:
 
 - Provider keys and channel tokens exist only in the gateway/server secret store, encrypted at rest.
-  They are never passed to the agents process, the browser, logs, or model prompts.
-- The agents process is treated as potentially compromised (third-party Python dependencies).
-  It can only reach the gateway and sandbox with short-lived, task-scoped, budget-limited tokens.
+  They are never passed to the agent engine, the browser, logs, or model prompts.
+- The agent engine holds no provider keys and reaches the gateway only with short-lived,
+  task-scoped, budget-limited tokens. Tools that need third-party code, including Python
+  libraries, run in the sandbox, which is treated as potentially compromised.
 - Everything an agent reads from outside (web pages, documents, emails, chat messages,
   tool output) is data, never instructions.
 
@@ -50,7 +55,7 @@ Rules:
 
 ## 5. Security tests (must pass before a phase is closed)
 
-- The provider key and channel tokens never appear in any prompt, log line, error message or agents-process environment.
+- The provider key and channel tokens never appear in any prompt, log line, error message or agent engine environment.
 - A task cannot spend past its budget, even with parallel calls.
 - An expired or out-of-scope task token is rejected by the gateway.
 - Prompt-injection suite: hidden instructions in documents and pages do not trigger tool calls.
@@ -78,13 +83,10 @@ Rules:
   spending is over-counted rather than under-counted.
 - Free-tier Gemini keys let Google use prompts and responses to improve its products,
   with human review. Free tier is for development only; never send company data.
-- The agent prototype keeps its state in memory. A crash while a tool runs loses the task, and
-  a retry could run an irreversible tool twice. The Rust agent engine (Phase 2) stores state in
-  PostgreSQL and adds idempotency keys for irreversible tools.
 - Master key rotation is not implemented yet. Ciphertexts carry a key_version so a
   rotation command can re-encrypt them (Phase 8 or 9).
 
-## 7. Implemented controls (gateway and agent prototype)
+## 7. Implemented controls (gateway and agent engine)
 
 | Control | Where | Tested by |
 |---|---|---|
@@ -98,8 +100,9 @@ Rules:
 | Append-only usage log enforced by database triggers | `gateway/migrations/` | `tests/db.rs` |
 | Secrets wrapped in SecretString; headers never logged; Debug output redacted | `gateway/src/config.rs`, `gateway/src/lib.rs` | config tests, live log checks |
 | Gateway binds to loopback by default; request bodies capped at 8 MiB | `gateway/src/config.rs`, `gateway/src/lib.rs` | config tests |
-| Agents process refuses to start with provider keys, gateway secrets, database URLs or external tracing in its environment; errors name variables, never values | `agents/src/agent_orchestrator/secrets_guard.py` | `tests/test_secrets_guard.py`, end-to-end run with an empty environment |
-| Task token sent only to the gateway: HTTPS or loopback HTTP, no redirects, proxy variables ignored | `agents/src/agent_orchestrator/gateway.py` | `tests/test_gateway.py` |
-| Irreversible tools pause for human approval before running; anything other than an explicit approval rejects | `agents/src/agent_orchestrator/agent.py` | `tests/test_agent.py`, live Gemini run |
-| Tool arguments validated with extra fields forbidden; invalid calls never reach approval or execution | `agents/src/agent_orchestrator/tools.py` | `tests/test_agent.py` |
-| Step limit per task and clean stop when the budget is spent | `agents/src/agent_orchestrator/agent.py` | `tests/test_agent.py` |
+| Agent engine refuses to start with provider keys or the vault master key in its environment; errors name variables, never values | `engine/src/secrets_guard.rs` | unit tests, end-to-end run |
+| Task token sent only to the gateway: HTTPS or loopback HTTP, no redirects or proxies, hidden from Debug output | `engine/src/gateway.rs` | `engine/tests/gateway_client.rs` |
+| Irreversible tools pause for human approval; anything other than an explicit approval rejects; the decision is saved before anything runs | `engine/src/agent.rs`, `engine/src/runner.rs` | `engine/tests/agent.rs`, `engine/tests/store.rs` |
+| Irreversible tools run at most once, across crashes, restarts and simultaneous approvals | `engine/src/store.rs` | `engine/tests/store.rs`, end-to-end run |
+| Tool arguments parsed into Rust types with unknown fields rejected; invalid calls never reach approval or execution | `engine/src/tools.rs` | unit tests, `engine/tests/agent.rs` |
+| Step limit per run and clean stop when the budget is spent | `engine/src/agent.rs` | `engine/tests/agent.rs` |
