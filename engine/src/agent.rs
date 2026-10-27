@@ -43,6 +43,10 @@ pub struct AgentConfig {
     pub system: String,
     pub max_steps: u32,
     pub max_output_tokens: u32,
+    /// Highest tier the run may move up to when the provider is overloaded or
+    /// rate limited. `None` (the default) never moves up: a costlier model is
+    /// an explicit choice.
+    pub escalate_to: Option<ModelTier>,
 }
 
 impl Default for AgentConfig {
@@ -52,6 +56,7 @@ impl Default for AgentConfig {
             system: DEFAULT_SYSTEM.to_string(),
             max_steps: 8,
             max_output_tokens: 1024,
+            escalate_to: None,
         }
     }
 }
@@ -106,6 +111,13 @@ pub struct RunState {
     /// Ids of pending calls a person approved. `Some` once a decision is made.
     #[serde(default)]
     pub approved: Option<Vec<String>>,
+    /// Tier the run moved up to, if it did. Kept for the rest of the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<ModelTier>,
+    /// Messages before this index came from a smaller model. Their reasoning
+    /// blocks are not sent to the current one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier_changed_at: Option<usize>,
 }
 
 impl RunState {
@@ -127,6 +139,8 @@ impl RunState {
             cost_micros: 0,
             usage: Usage::default(),
             approved: None,
+            tier: None,
+            tier_changed_at: None,
         }
     }
 }
@@ -191,6 +205,53 @@ impl ExecutionGuard for NoGuard {
 pub enum EngineError {
     #[error("the run is not waiting for approval")]
     NotAwaitingApproval,
+}
+
+fn tier_rank(tier: ModelTier) -> u8 {
+    match tier {
+        ModelTier::Small => 0,
+        ModelTier::Standard => 1,
+        ModelTier::Large => 2,
+    }
+}
+
+fn tier_above(tier: ModelTier) -> Option<ModelTier> {
+    match tier {
+        ModelTier::Small => Some(ModelTier::Standard),
+        ModelTier::Standard => Some(ModelTier::Large),
+        ModelTier::Large => None,
+    }
+}
+
+/// Overload and rate limits may clear on another model. Anything else (a bad
+/// key, a rejected request) would fail there too.
+fn is_overload(error: &GatewayError) -> bool {
+    matches!(
+        error,
+        GatewayError::ProviderUnavailable { code, .. }
+            if code == "provider_temporarily_unavailable" || code == "provider_rate_limited"
+    )
+}
+
+/// The next tier up, if the configuration allows it.
+fn tier_after_overload(config: &AgentConfig, tier: ModelTier) -> Option<ModelTier> {
+    let limit = config.escalate_to?;
+    tier_above(tier).filter(|next| tier_rank(*next) <= tier_rank(limit))
+}
+
+/// The conversation as the current model gets it. Reasoning from a smaller
+/// model is dropped: providers reject or ignore reasoning signed by another
+/// model. The saved history keeps it.
+fn messages_for_model(state: &RunState) -> Vec<Message> {
+    let mut messages = state.messages.clone();
+    if let Some(boundary) = state.tier_changed_at {
+        for message in messages.iter_mut().take(boundary) {
+            message
+                .content
+                .retain(|block| !matches!(block, ContentBlock::Reasoning { .. }));
+        }
+    }
+    messages
 }
 
 pub struct Agent {
@@ -294,74 +355,92 @@ impl Agent {
     }
 
     async fn call_model(&self, mut state: RunState) -> RunState {
-        let request = CompletionRequest {
-            tier: self.config.tier,
-            system: vec![SystemBlock {
-                text: self.config.system.clone(),
-                cache: true,
-            }],
-            messages: state.messages.clone(),
-            tools: self.registry.specs(),
-            max_output_tokens: self.config.max_output_tokens,
-        };
-        match self.client.complete(&request).await {
-            Err(GatewayError::BudgetExceeded(message)) => {
-                state.status = RunStatus::BudgetExceeded;
-                state.error = Some(message);
+        loop {
+            let tier = state.tier.unwrap_or(self.config.tier);
+            let request = CompletionRequest {
+                tier,
+                system: vec![SystemBlock {
+                    text: self.config.system.clone(),
+                    cache: true,
+                }],
+                messages: messages_for_model(&state),
+                tools: self.registry.specs(),
+                max_output_tokens: self.config.max_output_tokens,
+            };
+            let result = self.client.complete(&request).await;
+            if let Err(error) = &result
+                && is_overload(error)
+                && let Some(next) = tier_after_overload(&self.config, tier)
+            {
+                tracing::warn!(
+                    from = tier.as_str(),
+                    to = next.as_str(),
+                    error = %error,
+                    "provider overloaded; moving the run up a tier"
+                );
+                state.tier = Some(next);
+                state.tier_changed_at = Some(state.messages.len());
+                continue;
             }
-            Err(error) => {
-                state.status = RunStatus::Failed;
-                state.error = Some(error.to_string());
-            }
-            Ok(response) => {
-                state.steps += 1;
-                state.cost_micros = state.cost_micros.saturating_add(response.cost_micros);
-                let used = response.completion.usage;
-                state.usage.input_tokens =
-                    state.usage.input_tokens.saturating_add(used.input_tokens);
-                state.usage.output_tokens =
-                    state.usage.output_tokens.saturating_add(used.output_tokens);
-                state.usage.cache_read_tokens = state
-                    .usage
-                    .cache_read_tokens
-                    .saturating_add(used.cache_read_tokens);
-                state.usage.cache_write_tokens = state
-                    .usage
-                    .cache_write_tokens
-                    .saturating_add(used.cache_write_tokens);
-                let content = response.completion.content;
-                let calls: Vec<ToolCall> = content
-                    .iter()
-                    .filter_map(|block| match block {
-                        ContentBlock::ToolUse {
-                            id, name, input, ..
-                        } => Some(ToolCall {
-                            id: id.clone(),
-                            name: name.clone(),
-                            input: input.clone(),
-                        }),
-                        _ => None,
-                    })
-                    .collect();
-                if response.completion.stop_reason == StopReason::ToolUse && !calls.is_empty() {
-                    state.pending = calls;
-                } else {
-                    state.final_text = content
+            match result {
+                Err(GatewayError::BudgetExceeded(message)) => {
+                    state.status = RunStatus::BudgetExceeded;
+                    state.error = Some(message);
+                }
+                Err(error) => {
+                    state.status = RunStatus::Failed;
+                    state.error = Some(error.to_string());
+                }
+                Ok(response) => {
+                    state.steps += 1;
+                    state.cost_micros = state.cost_micros.saturating_add(response.cost_micros);
+                    let used = response.completion.usage;
+                    state.usage.input_tokens =
+                        state.usage.input_tokens.saturating_add(used.input_tokens);
+                    state.usage.output_tokens =
+                        state.usage.output_tokens.saturating_add(used.output_tokens);
+                    state.usage.cache_read_tokens = state
+                        .usage
+                        .cache_read_tokens
+                        .saturating_add(used.cache_read_tokens);
+                    state.usage.cache_write_tokens = state
+                        .usage
+                        .cache_write_tokens
+                        .saturating_add(used.cache_write_tokens);
+                    let content = response.completion.content;
+                    let calls: Vec<ToolCall> = content
                         .iter()
                         .filter_map(|block| match block {
-                            ContentBlock::Text { text, .. } => Some(text.as_str()),
+                            ContentBlock::ToolUse {
+                                id, name, input, ..
+                            } => Some(ToolCall {
+                                id: id.clone(),
+                                name: name.clone(),
+                                input: input.clone(),
+                            }),
                             _ => None,
                         })
                         .collect();
-                    state.status = RunStatus::Completed;
+                    if response.completion.stop_reason == StopReason::ToolUse && !calls.is_empty() {
+                        state.pending = calls;
+                    } else {
+                        state.final_text = content
+                            .iter()
+                            .filter_map(|block| match block {
+                                ContentBlock::Text { text, .. } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect();
+                        state.status = RunStatus::Completed;
+                    }
+                    state.messages.push(Message {
+                        role: Role::Assistant,
+                        content,
+                    });
                 }
-                state.messages.push(Message {
-                    role: Role::Assistant,
-                    content,
-                });
             }
+            break state;
         }
-        state
     }
 
     async fn run_irreversible<G: ExecutionGuard>(&self, call: &ToolCall, guard: &G) -> ToolOutcome {

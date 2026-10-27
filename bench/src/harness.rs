@@ -90,6 +90,7 @@ pub async fn run_trial(config: &BenchConfig, task: &Task, trial: u32) -> TrialRe
             system: system_prompt(config.scenario),
             max_steps: MAX_STEPS,
             max_output_tokens: MAX_OUTPUT_TOKENS,
+            escalate_to: None,
         },
     );
 

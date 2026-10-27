@@ -333,3 +333,112 @@ mod erased {
         }
     }
 }
+
+fn gateway_error(status: u16, code: &str) -> ResponseTemplate {
+    ResponseTemplate::new(status)
+        .set_body_json(json!({ "error": { "code": code, "message": "try later" } }))
+}
+
+async fn calls(server: &MockServer) -> usize {
+    server.received_requests().await.unwrap().len()
+}
+
+fn escalating(from: ModelTier, to: ModelTier) -> AgentConfig {
+    AgentConfig {
+        tier: from,
+        escalate_to: Some(to),
+        ..AgentConfig::default()
+    }
+}
+
+#[tokio::test]
+async fn moves_up_a_tier_when_overloaded_and_drops_older_reasoning() {
+    let server = gateway(vec![
+        reply(
+            json!([
+                { "type": "reasoning", "text": "", "signature": "sig-small" },
+                tool_use("get_time", json!({}))
+            ]),
+            "tool_use",
+        ),
+        gateway_error(503, "provider_temporarily_unavailable"),
+        reply(json!([{ "type": "text", "text": "noon" }]), "end_turn"),
+    ])
+    .await;
+    let counts = Counts::default();
+    let agent = agent(
+        &server,
+        &counts,
+        escalating(ModelTier::Small, ModelTier::Standard),
+    );
+    let state = agent.drive(agent.start("what time is it?")).await;
+
+    assert_eq!(state.status, RunStatus::Completed);
+    assert_eq!(state.tier, Some(ModelTier::Standard));
+    let has_reasoning = |request: &CompletionRequest| {
+        request.messages[1]
+            .content
+            .iter()
+            .any(|block| matches!(block, ContentBlock::Reasoning { .. }))
+    };
+    let failed = sent(&server, 1).await;
+    let retried = sent(&server, 2).await;
+    assert_eq!(failed.tier, ModelTier::Small);
+    assert!(has_reasoning(&failed));
+    assert_eq!(retried.tier, ModelTier::Standard);
+    assert!(
+        !has_reasoning(&retried),
+        "reasoning from the smaller model was sent"
+    );
+    assert!(
+        state.messages[1]
+            .content
+            .iter()
+            .any(|block| matches!(block, ContentBlock::Reasoning { .. })),
+        "the saved history must keep the reasoning"
+    );
+}
+
+#[tokio::test]
+async fn never_moves_up_without_permission() {
+    let server = gateway(vec![gateway_error(503, "provider_temporarily_unavailable")]).await;
+    let counts = Counts::default();
+    let agent = agent(&server, &counts, AgentConfig::default());
+    let state = agent.drive(agent.start("hello")).await;
+    assert_eq!(state.status, RunStatus::Failed);
+    assert_eq!(state.tier, None);
+    assert_eq!(calls(&server).await, 1);
+}
+
+#[tokio::test]
+async fn auth_failures_do_not_move_up() {
+    let server = gateway(vec![gateway_error(502, "provider_auth_failed")]).await;
+    let counts = Counts::default();
+    let agent = agent(
+        &server,
+        &counts,
+        escalating(ModelTier::Small, ModelTier::Large),
+    );
+    let state = agent.drive(agent.start("hello")).await;
+    assert_eq!(state.status, RunStatus::Failed);
+    assert_eq!(calls(&server).await, 1);
+}
+
+#[tokio::test]
+async fn stops_moving_up_at_the_configured_limit() {
+    let server = gateway(vec![
+        gateway_error(429, "provider_rate_limited"),
+        gateway_error(503, "provider_temporarily_unavailable"),
+    ])
+    .await;
+    let counts = Counts::default();
+    let agent = agent(
+        &server,
+        &counts,
+        escalating(ModelTier::Small, ModelTier::Standard),
+    );
+    let state = agent.drive(agent.start("hello")).await;
+    assert_eq!(state.status, RunStatus::Failed);
+    assert_eq!(calls(&server).await, 2);
+    assert_eq!(sent(&server, 1).await.tier, ModelTier::Standard);
+}
