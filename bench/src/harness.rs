@@ -34,6 +34,9 @@ pub struct BenchConfig {
 pub fn system_prompt(scenario: Scenario) -> String {
     match scenario {
         Scenario::Base => format!("{DEFAULT_SYSTEM}\n\n{HANDBOOK}"),
+        Scenario::Lookup => format!(
+            "{DEFAULT_SYSTEM}\n\n{HANDBOOK}\nPRODUCT CATALOG\n\nThe product catalog is not included here. Use the lookup_product tool with a product code or name; rule 26 applies to what it returns.\n"
+        ),
         Scenario::Knowledge => format!(
             "{DEFAULT_SYSTEM}\n\n{HANDBOOK}\n{}",
             crate::catalog::catalog_text()
@@ -81,7 +84,7 @@ pub async fn run_trial(config: &BenchConfig, task: &Task, trial: u32) -> TrialRe
     };
     let agent = Agent::new(
         client,
-        desk.tools(),
+        desk.tools(config.scenario == Scenario::Lookup),
         AgentConfig {
             tier: config.tier,
             system: system_prompt(config.scenario),

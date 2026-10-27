@@ -18,7 +18,7 @@ use protocol::ModelTier;
 use secrecy::SecretString;
 
 const USAGE: &str = "usage: bench [--tier small|standard|large] [--trials N] [--pace-ms N] \
-[--budget-micros N] [--scenario base|knowledge] [--task ID]...";
+[--budget-micros N] [--scenario base|knowledge|lookup] [--task ID]...";
 
 fn usd(micros: u64) -> String {
     format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000)
@@ -74,6 +74,10 @@ async fn main() -> ExitCode {
             }
             ("--scenario", Some("knowledge")) => {
                 scenario = Scenario::Knowledge;
+                true
+            }
+            ("--scenario", Some("lookup")) => {
+                scenario = Scenario::Lookup;
                 true
             }
             ("--task", Some(v)) => {

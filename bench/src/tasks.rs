@@ -13,6 +13,9 @@ pub enum Scenario {
     Base,
     /// Handbook plus a 200-product catalog: above the Gemini cache minimum.
     Knowledge,
+    /// Handbook plus a lookup_product tool instead of the catalog in the
+    /// prompt (technique 3: consult only the part that is needed).
+    Lookup,
 }
 
 /// Static instructions for every run. Large and unchanging on purpose: this is
@@ -228,7 +231,7 @@ fn knowledge_tasks() -> Vec<Task> {
 /// prompt, plus the tasks that need the catalog.
 pub fn all(scenario: Scenario) -> Vec<Task> {
     let mut tasks = base_tasks();
-    if scenario == Scenario::Knowledge {
+    if scenario != Scenario::Base {
         tasks.extend(knowledge_tasks());
     }
     tasks

@@ -46,15 +46,38 @@ pub fn catalog() -> Vec<Product> {
         .collect()
 }
 
+/// One catalog line, as both the prompt and the lookup tool show it.
+pub fn product_line(product: &Product) -> String {
+    format!(
+        "{} | {} | {} | warranty {} months | support team {}",
+        product.sku, product.name, product.category, product.warranty_months, product.team
+    )
+}
+
+/// Products whose code equals the query, or whose name contains every word
+/// of it (case-insensitive). At most `limit` results.
+pub fn lookup(query: &str, limit: usize) -> Vec<Product> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let words: Vec<&str> = query.split_whitespace().collect();
+    catalog()
+        .into_iter()
+        .filter(|p| {
+            p.sku.to_lowercase() == query || words.iter().all(|w| p.name.to_lowercase().contains(w))
+        })
+        .take(limit)
+        .collect()
+}
+
 pub fn catalog_text() -> String {
     let mut text = String::from(
         "PRODUCT CATALOG\n\nOne line per product: code | name | category | warranty | support team.\n\n",
     );
     for product in catalog() {
-        text.push_str(&format!(
-            "{} | {} | {} | warranty {} months | support team {}\n",
-            product.sku, product.name, product.category, product.warranty_months, product.team
-        ));
+        text.push_str(&product_line(&product));
+        text.push('\n');
     }
     text
 }

@@ -300,3 +300,36 @@ async fn decide_requires_a_waiting_run() {
     assert_eq!(error, EngineError::NotAwaitingApproval);
     assert!(server.received_requests().await.unwrap().is_empty());
 }
+
+/// Prompt caches only pay off if the start of every call is byte-identical:
+/// instructions, tool definitions and the first message must not change
+/// between the steps of one run.
+#[tokio::test]
+async fn the_cacheable_prefix_is_identical_across_steps() {
+    let server = gateway(vec![
+        reply(json!([tool_use("get_time", json!({}))]), "tool_use"),
+        reply(json!([{ "type": "text", "text": "noon" }]), "end_turn"),
+    ])
+    .await;
+    let counts = Counts::default();
+    let agent = agent(&server, &counts, AgentConfig::default());
+    agent.drive(agent.start("what time is it?")).await;
+
+    let first = sent(&server, 0).await;
+    let second = sent(&server, 1).await;
+    let bytes = |value: &dyn erased::Json| value.bytes();
+    assert_eq!(bytes(&first.system), bytes(&second.system));
+    assert_eq!(bytes(&first.tools), bytes(&second.tools));
+    assert_eq!(bytes(&first.messages[0]), bytes(&second.messages[0]));
+}
+
+mod erased {
+    pub trait Json {
+        fn bytes(&self) -> Vec<u8>;
+    }
+    impl<T: serde::Serialize> Json for T {
+        fn bytes(&self) -> Vec<u8> {
+            serde_json::to_vec(self).unwrap()
+        }
+    }
+}

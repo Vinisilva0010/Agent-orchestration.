@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use engine::tools::{Tool, ToolRegistry, TypedTool};
 
-use crate::catalog::{expired_product, routed_product};
+use crate::catalog::{expired_product, lookup, product_line, routed_product};
+
+const MAX_LOOKUP_RESULTS: usize = 5;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -217,6 +219,13 @@ struct ListArgs {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct LookupArgs {
+    /// A product code such as NW-1150, or words from the product name.
+    query: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct IdArgs {
     id: u32,
 }
@@ -298,7 +307,8 @@ impl Desk {
         self.tickets.lock().map(|t| t.clone()).unwrap_or_default()
     }
 
-    pub fn tools(&self) -> ToolRegistry {
+    /// The desk tools. `with_catalog_lookup` adds lookup_product.
+    pub fn tools(&self, with_catalog_lookup: bool) -> ToolRegistry {
         let t = Arc::clone(&self.tickets);
         let list_tickets = TypedTool::new(
             "list_tickets",
@@ -381,13 +391,86 @@ impl Desk {
         )
         .mark_irreversible();
 
-        let tools: Vec<Arc<dyn Tool>> = vec![
+        let mut tools: Vec<Arc<dyn Tool>> = vec![
             Arc::new(list_tickets),
             Arc::new(read_ticket),
             Arc::new(set_priority),
             Arc::new(assign),
             Arc::new(close),
         ];
+        if with_catalog_lookup {
+            let lookup_product = TypedTool::new(
+                "lookup_product",
+                "Looks up products in the catalog by product code or by words from the name. Returns at most 5 catalog lines: code | name | category | warranty | support team.",
+                |args: LookupArgs| {
+                    let found = lookup(&args.query, MAX_LOOKUP_RESULTS);
+                    let result = if found.is_empty() {
+                        Ok(format!("no product matches {:?}", args.query))
+                    } else {
+                        Ok(found
+                            .iter()
+                            .map(product_line)
+                            .collect::<Vec<_>>()
+                            .join("\n"))
+                    };
+                    async move { result }
+                },
+            );
+            tools.push(Arc::new(lookup_product));
+        }
         ToolRegistry::new(tools).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::catalog::catalog;
+
+    async fn lookup_tool(query: &str) -> String {
+        let tools = Desk::new().tools(true);
+        let input = json!({ "query": query });
+        tools.validate("lookup_product", &input).unwrap();
+        let tool = tools.validate("lookup_product", &input).ok().unwrap();
+        tool.run(input).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn lookup_finds_by_code_and_name_and_never_invents() {
+        let product = routed_product();
+        assert_eq!(lookup_tool(&product.sku).await, product_line(&product));
+        assert!(lookup_tool(&product.name).await.contains(&product.sku));
+        assert!(
+            lookup_tool("NW-9999")
+                .await
+                .starts_with("no product matches")
+        );
+        let laptops = lookup_tool("aurora").await;
+        assert_eq!(laptops.lines().count(), MAX_LOOKUP_RESULTS);
+        assert!(
+            catalog()
+                .iter()
+                .filter(|p| p.name.starts_with("Aurora"))
+                .count()
+                > MAX_LOOKUP_RESULTS
+        );
+    }
+
+    #[test]
+    fn lookup_tool_is_only_there_when_asked() {
+        assert!(
+            Desk::new()
+                .tools(false)
+                .validate("lookup_product", &json!({ "query": "x" }))
+                .is_err()
+        );
+        assert!(
+            Desk::new()
+                .tools(true)
+                .validate("lookup_product", &json!({ "query": "x" }))
+                .is_ok()
+        );
     }
 }
