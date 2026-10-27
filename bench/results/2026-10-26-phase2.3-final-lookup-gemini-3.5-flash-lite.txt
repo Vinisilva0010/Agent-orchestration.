@@ -1,0 +1,24 @@
+{"task":"close-reset-email","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2609,"usage":{"input_tokens":8040,"output_tokens":78,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"billing-high","trial":1,"success":true,"status":"completed","steps":3,"cost_micros":1699,"usage":{"input_tokens":5010,"output_tokens":78,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"assign-oldest-network","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2328,"usage":{"input_tokens":7017,"output_tokens":88,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"close-duplicate","trial":1,"success":true,"status":"completed","steps":3,"cost_micros":1876,"usage":{"input_tokens":5848,"output_tokens":48,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"vpn-outage","trial":1,"success":true,"status":"completed","steps":5,"cost_micros":2972,"usage":{"input_tokens":9009,"output_tokens":107,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"find-duplicates","trial":1,"success":true,"status":"completed","steps":8,"cost_micros":5370,"usage":{"input_tokens":16648,"output_tokens":149,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"ana-double-charge","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2275,"usage":{"input_tokens":6862,"output_tokens":86,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"route-network","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2762,"usage":{"input_tokens":7600,"output_tokens":192,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"catalog-routing","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2271,"usage":{"input_tokens":6795,"output_tokens":92,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"warranty-check","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2335,"usage":{"input_tokens":6834,"output_tokens":113,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+
+task                     solved     rate  reliability   cost
+close-reset-email          1/1      100%  pass^1  100%  total $0.002609  per solved $0.002609  cache hit 0%
+billing-high               1/1      100%  pass^1  100%  total $0.001699  per solved $0.001699  cache hit 0%
+assign-oldest-network      1/1      100%  pass^1  100%  total $0.002328  per solved $0.002328  cache hit 0%
+close-duplicate            1/1      100%  pass^1  100%  total $0.001876  per solved $0.001876  cache hit 0%
+vpn-outage                 1/1      100%  pass^1  100%  total $0.002972  per solved $0.002972  cache hit 0%
+find-duplicates            1/1      100%  pass^1  100%  total $0.005370  per solved $0.005370  cache hit 0%
+ana-double-charge          1/1      100%  pass^1  100%  total $0.002275  per solved $0.002275  cache hit 0%
+route-network              1/1      100%  pass^1  100%  total $0.002762  per solved $0.002762  cache hit 0%
+catalog-routing            1/1      100%  pass^1  100%  total $0.002271  per solved $0.002271  cache hit 0%
+warranty-check             1/1      100%  pass^1  100%  total $0.002335  per solved $0.002335  cache hit 0%
+ALL                       10/10     100%  pass^1  100%  total $0.026497  per solved $0.002650  cache hit 0%
+rate limited and repeated: 1 trials, $0.001074 not counted above

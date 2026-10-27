@@ -85,6 +85,15 @@ Rules:
   with human review. Free tier is for development only; never send company data.
 - Master key rotation is not implemented yet. Ciphertexts carry a key_version so a
   rotation command can re-encrypt them (Phase 8 or 9).
+- Moving a run up a tier (overload, rate limits or repeated invalid tool
+  calls) raises the cost per call. It is off by default
+  (`AgentConfig::escalate_to = None`) and always bounded by the configured
+  tier and by the task budget, since every call reserves its own price.
+- Runs paused as `awaiting_budget` wait for a person with no expiry. The
+  command to raise a task's limit arrives with the server (Phase 3); until
+  then a paused run can only be resumed through the engine library.
+- The `low_budget` flag compares the run's own spending with the remaining
+  budget, so it is approximate when the task had spending before a resume.
 
 ## 7. Implemented controls (gateway and agent engine)
 
@@ -106,3 +115,11 @@ Rules:
 | Irreversible tools run at most once, across crashes, restarts and simultaneous approvals | `engine/src/store.rs` | `engine/tests/store.rs`, end-to-end run |
 | Tool arguments parsed into Rust types with unknown fields rejected; invalid calls never reach approval or execution | `engine/src/tools.rs` | unit tests, `engine/tests/agent.rs` |
 | Step limit per run and clean stop when the budget is spent | `engine/src/agent.rs` | `engine/tests/agent.rs` |
+- A refused budget reservation (402) pauses the run as `awaiting_budget`
+  before anything is spent; the run goes on only after a person raises the
+  limit.
+- After a tier change, reasoning blocks produced by the previous model are
+  not sent to the new one; the saved history keeps them.
+- Each run gets a fixed tool subset (`ToolRegistry::only`); tools outside it
+  cannot be called even if the model asks for them, and the subset never
+  changes mid-run, so the cached prefix stays byte-identical (tested).
