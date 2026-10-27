@@ -143,6 +143,29 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// A registry with only the named tools, kept in this registry's order so
+    /// the same set always produces the same tool definitions (and the same
+    /// cacheable prefix) however the names are listed. Unknown names are an
+    /// error. Pick the set once per run: changing it mid-run breaks caching.
+    pub fn only(&self, names: &[&str]) -> Result<Self, String> {
+        if let Some(unknown) = names
+            .iter()
+            .find(|name| !self.tools.iter().any(|tool| tool.name() == **name))
+        {
+            return Err(format!(
+                "unknown tool: {}",
+                truncate(unknown, MAX_NAME_IN_ERROR)
+            ));
+        }
+        let tools = self
+            .tools
+            .iter()
+            .filter(|tool| names.contains(&tool.name()))
+            .cloned()
+            .collect();
+        Ok(Self { tools })
+    }
+
     /// Returns the tool if it exists and the input is valid, or an error
     /// message for the model.
     pub fn validate(&self, name: &str, input: &Value) -> Result<&dyn Tool, String> {
@@ -215,5 +238,62 @@ mod tests {
     #[test]
     fn rejects_duplicate_names() {
         assert!(ToolRegistry::new(vec![tool(), tool()]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod subset_tests {
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use serde_json::json;
+
+    use super::*;
+
+    #[derive(Deserialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct NoArgs {}
+
+    fn tool(name: &str) -> Arc<dyn Tool> {
+        Arc::new(TypedTool::new(name, "test tool", |_: NoArgs| async {
+            Ok(String::from("ok"))
+        }))
+    }
+
+    fn registry() -> ToolRegistry {
+        ToolRegistry::new(vec![tool("read"), tool("write"), tool("delete")]).unwrap()
+    }
+
+    fn bytes(registry: &ToolRegistry) -> Vec<u8> {
+        serde_json::to_vec(&registry.specs()).unwrap()
+    }
+
+    #[test]
+    fn a_subset_keeps_registry_order_whatever_order_names_come_in() {
+        let all = registry();
+        let names: Vec<String> = all
+            .only(&["delete", "read"])
+            .unwrap()
+            .specs()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect();
+        assert_eq!(names, ["read", "delete"]);
+        assert_eq!(
+            bytes(&all.only(&["read", "delete"]).unwrap()),
+            bytes(&all.only(&["delete", "read", "read"]).unwrap())
+        );
+    }
+
+    #[test]
+    fn tools_outside_the_subset_cannot_be_called() {
+        let reader = registry().only(&["read"]).unwrap();
+        assert!(reader.validate("read", &json!({})).is_ok());
+        let error = reader.validate("delete", &json!({})).err().unwrap();
+        assert!(error.starts_with("unknown tool"), "{error}");
+    }
+
+    #[test]
+    fn unknown_names_are_rejected() {
+        assert!(registry().only(&["read", "drop_database"]).is_err());
     }
 }
