@@ -105,6 +105,7 @@ fn exit_code(status: RunStatus) -> u8 {
         RunStatus::Completed => 0,
         RunStatus::BudgetExceeded => 2,
         RunStatus::AwaitingApproval => 10,
+        RunStatus::AwaitingBudget => 11,
         RunStatus::Running | RunStatus::MaxSteps | RunStatus::Failed => 3,
     }
 }

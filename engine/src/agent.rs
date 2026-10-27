@@ -36,6 +36,8 @@ pub const REJECTED_RESULT: &str =
 pub const UNKNOWN_OUTCOME: &str = "This action was started before an interruption and its \
 outcome is unknown. It was not run again. Tell the user a person must check it.";
 pub const MAX_RESULT_CHARS: usize = 20_000;
+/// Consecutive steps with only invalid tool calls before the run moves up a tier.
+pub const MAX_INVALID_TOOL_STEPS: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentConfig {
@@ -44,7 +46,8 @@ pub struct AgentConfig {
     pub max_steps: u32,
     pub max_output_tokens: u32,
     /// Highest tier the run may move up to when the provider is overloaded or
-    /// rate limited. `None` (the default) never moves up: a costlier model is
+    /// rate limited, or the model keeps making invalid tool calls. `None`
+    /// (the default) never moves up: a costlier model is
     /// an explicit choice.
     pub escalate_to: Option<ModelTier>,
 }
@@ -66,6 +69,9 @@ impl Default for AgentConfig {
 pub enum RunStatus {
     Running,
     AwaitingApproval,
+    /// The gateway refused to reserve the next call: nothing was spent. A
+    /// person raises the limit or ends the run.
+    AwaitingBudget,
     Completed,
     BudgetExceeded,
     MaxSteps,
@@ -74,13 +80,17 @@ pub enum RunStatus {
 
 impl RunStatus {
     pub fn is_finished(self) -> bool {
-        !matches!(self, Self::Running | Self::AwaitingApproval)
+        !matches!(
+            self,
+            Self::Running | Self::AwaitingApproval | Self::AwaitingBudget
+        )
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Running => "running",
             Self::AwaitingApproval => "awaiting_approval",
+            Self::AwaitingBudget => "awaiting_budget",
             Self::Completed => "completed",
             Self::BudgetExceeded => "budget_exceeded",
             Self::MaxSteps => "max_steps",
@@ -118,6 +128,13 @@ pub struct RunState {
     /// blocks are not sent to the current one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier_changed_at: Option<usize>,
+    /// Consecutive steps in which every tool call was invalid (unknown tool or
+    /// bad arguments): a sign the model is struggling.
+    #[serde(default)]
+    pub invalid_tool_steps: u32,
+    /// Set once less than a fifth of the task budget is left.
+    #[serde(default)]
+    pub low_budget: bool,
 }
 
 impl RunState {
@@ -141,6 +158,8 @@ impl RunState {
             approved: None,
             tier: None,
             tier_changed_at: None,
+            invalid_tool_steps: 0,
+            low_budget: false,
         }
     }
 }
@@ -205,6 +224,8 @@ impl ExecutionGuard for NoGuard {
 pub enum EngineError {
     #[error("the run is not waiting for approval")]
     NotAwaitingApproval,
+    #[error("the run is not waiting for more budget")]
+    NotAwaitingBudget,
 }
 
 fn tier_rank(tier: ModelTier) -> u8 {
@@ -234,7 +255,7 @@ fn is_overload(error: &GatewayError) -> bool {
 }
 
 /// The next tier up, if the configuration allows it.
-fn tier_after_overload(config: &AgentConfig, tier: ModelTier) -> Option<ModelTier> {
+fn allowed_tier_above(config: &AgentConfig, tier: ModelTier) -> Option<ModelTier> {
     let limit = config.escalate_to?;
     tier_above(tier).filter(|next| tier_rank(*next) <= tier_rank(limit))
 }
@@ -344,6 +365,18 @@ impl Agent {
         Ok(state)
     }
 
+    /// Lets a run that paused for budget go on, after a person raised the
+    /// task's limit in the gateway (by issuing its token again with a higher
+    /// budget). Nothing else changes.
+    pub fn record_budget_increase(&self, mut state: RunState) -> Result<RunState, EngineError> {
+        if state.status != RunStatus::AwaitingBudget {
+            return Err(EngineError::NotAwaitingBudget);
+        }
+        state.status = RunStatus::Running;
+        state.error = None;
+        Ok(state)
+    }
+
     /// Records a decision and drives the run on, in memory.
     pub async fn decide(
         &self,
@@ -370,7 +403,7 @@ impl Agent {
             let result = self.client.complete(&request).await;
             if let Err(error) = &result
                 && is_overload(error)
-                && let Some(next) = tier_after_overload(&self.config, tier)
+                && let Some(next) = allowed_tier_above(&self.config, tier)
             {
                 tracing::warn!(
                     from = tier.as_str(),
@@ -384,7 +417,7 @@ impl Agent {
             }
             match result {
                 Err(GatewayError::BudgetExceeded(message)) => {
-                    state.status = RunStatus::BudgetExceeded;
+                    state.status = RunStatus::AwaitingBudget;
                     state.error = Some(message);
                 }
                 Err(error) => {
@@ -394,6 +427,17 @@ impl Agent {
                 Ok(response) => {
                     state.steps += 1;
                     state.cost_micros = state.cost_micros.saturating_add(response.cost_micros);
+                    if let Some(remaining) = response.task_budget_remaining_micros
+                        && !state.low_budget
+                        && remaining.saturating_mul(4) < state.cost_micros
+                    {
+                        state.low_budget = true;
+                        tracing::warn!(
+                            remaining_micros = remaining,
+                            spent_micros = state.cost_micros,
+                            "less than a fifth of the task budget is left"
+                        );
+                    }
                     let used = response.completion.usage;
                     state.usage.input_tokens =
                         state.usage.input_tokens.saturating_add(used.input_tokens);
@@ -485,12 +529,17 @@ impl Agent {
         guard: &G,
     ) -> RunState {
         let mut results = Vec::with_capacity(state.pending.len());
+        let total = state.pending.len();
+        let mut invalid = 0usize;
         for call in std::mem::take(&mut state.pending) {
             let outcome = match self.registry.validate(&call.name, &call.input) {
-                Err(message) => ToolOutcome {
-                    content: message,
-                    is_error: true,
-                },
+                Err(message) => {
+                    invalid += 1;
+                    ToolOutcome {
+                        content: message,
+                        is_error: true,
+                    }
+                }
                 Ok(tool) if tool.irreversible() => {
                     if approved.contains(&call.id) {
                         self.run_irreversible(&call, guard).await
@@ -513,6 +562,24 @@ impl Agent {
             role: Role::User,
             content: results,
         });
+        if total > 0 && invalid == total {
+            state.invalid_tool_steps += 1;
+        } else {
+            state.invalid_tool_steps = 0;
+        }
+        let tier = state.tier.unwrap_or(self.config.tier);
+        if state.invalid_tool_steps >= MAX_INVALID_TOOL_STEPS
+            && let Some(next) = allowed_tier_above(&self.config, tier)
+        {
+            tracing::warn!(
+                from = tier.as_str(),
+                to = next.as_str(),
+                "the model keeps making invalid tool calls; moving the run up a tier"
+            );
+            state.tier = Some(next);
+            state.tier_changed_at = Some(state.messages.len());
+            state.invalid_tool_steps = 0;
+        }
         state.status = RunStatus::Running;
         state
     }

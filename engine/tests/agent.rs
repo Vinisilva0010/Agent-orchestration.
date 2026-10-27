@@ -244,7 +244,7 @@ async fn invalid_arguments_skip_approval_and_go_back_to_the_model() {
 }
 
 #[tokio::test]
-async fn stops_when_the_budget_is_spent() {
+async fn pauses_when_the_budget_is_spent() {
     let server = gateway(vec![ResponseTemplate::new(402).set_body_json(
         json!({ "error": { "code": "budget_exceeded", "message": "task budget exceeded" } }),
     )])
@@ -252,7 +252,7 @@ async fn stops_when_the_budget_is_spent() {
     let counts = Counts::default();
     let agent = agent(&server, &counts, AgentConfig::default());
     let state = agent.drive(agent.start("hello")).await;
-    assert_eq!(state.status, RunStatus::BudgetExceeded);
+    assert_eq!(state.status, RunStatus::AwaitingBudget);
     assert_eq!(state.error.as_deref(), Some("task budget exceeded"));
 }
 
@@ -441,4 +441,70 @@ async fn stops_moving_up_at_the_configured_limit() {
     assert_eq!(state.status, RunStatus::Failed);
     assert_eq!(calls(&server).await, 2);
     assert_eq!(sent(&server, 1).await.tier, ModelTier::Standard);
+}
+
+#[tokio::test]
+async fn a_paused_run_goes_on_after_a_budget_increase() {
+    let server = gateway(vec![
+        gateway_error(402, "budget_exceeded"),
+        reply(json!([{ "type": "text", "text": "done" }]), "end_turn"),
+    ])
+    .await;
+    let counts = Counts::default();
+    let agent = agent(&server, &counts, AgentConfig::default());
+    let paused = agent.drive(agent.start("hello")).await;
+    assert_eq!(paused.status, RunStatus::AwaitingBudget);
+    assert!(paused.error.is_some());
+    assert_eq!(paused.steps, 0, "a refused reservation is not a step");
+
+    let resumed = agent.record_budget_increase(paused).unwrap();
+    let state = agent.drive(resumed).await;
+    assert_eq!(state.status, RunStatus::Completed);
+    assert_eq!(state.error, None);
+    assert_eq!(
+        agent.record_budget_increase(state).err(),
+        Some(EngineError::NotAwaitingBudget)
+    );
+}
+
+#[tokio::test]
+async fn flags_a_low_budget() {
+    let low = ResponseTemplate::new(200).set_body_json(json!({
+        "provider": "mock", "model": "mock-standard",
+        "content": [{ "type": "text", "text": "done" }], "stop_reason": "end_turn",
+        "usage": { "input_tokens": 1, "output_tokens": 1, "cache_read_tokens": 0, "cache_write_tokens": 0 },
+        "cost_micros": 90, "task_budget_remaining_micros": 10
+    }));
+    let server = gateway(vec![low]).await;
+    let counts = Counts::default();
+    let agent = agent(&server, &counts, AgentConfig::default());
+    assert!(agent.drive(agent.start("hello")).await.low_budget);
+
+    let server = gateway(vec![reply(
+        json!([{ "type": "text", "text": "done" }]),
+        "end_turn",
+    )])
+    .await;
+    let agent = self::agent(&server, &counts, AgentConfig::default());
+    assert!(!agent.drive(agent.start("hello")).await.low_budget);
+}
+
+#[tokio::test]
+async fn moves_up_after_repeated_invalid_tool_calls() {
+    let server = gateway(vec![
+        reply(json!([tool_use("drop_table", json!({}))]), "tool_use"),
+        reply(json!([tool_use("drop_table", json!({}))]), "tool_use"),
+        reply(json!([{ "type": "text", "text": "done" }]), "end_turn"),
+    ])
+    .await;
+    let counts = Counts::default();
+    let agent = agent(
+        &server,
+        &counts,
+        escalating(ModelTier::Small, ModelTier::Standard),
+    );
+    let state = agent.drive(agent.start("hello")).await;
+    assert_eq!(state.status, RunStatus::Completed);
+    assert_eq!(sent(&server, 1).await.tier, ModelTier::Small);
+    assert_eq!(sent(&server, 2).await.tier, ModelTier::Standard);
 }
