@@ -1,0 +1,35 @@
+{"task":"close-reset-email","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2466,"usage":{"input_tokens":7603,"output_tokens":73,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"billing-high","trial":1,"success":true,"status":"completed","steps":3,"cost_micros":1582,"usage":{"input_tokens":4617,"output_tokens":78,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"assign-oldest-network","trial":1,"success":true,"status":"completed","steps":3,"cost_micros":1588,"usage":{"input_tokens":4748,"output_tokens":65,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"close-duplicate","trial":1,"success":true,"status":"completed","steps":3,"cost_micros":1758,"usage":{"input_tokens":5455,"output_tokens":48,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"vpn-outage","trial":1,"success":true,"status":"completed","steps":5,"cost_micros":3157,"usage":{"input_tokens":9722,"output_tokens":95,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"find-duplicates","trial":1,"success":true,"status":"completed","steps":7,"cost_micros":4445,"usage":{"input_tokens":13756,"output_tokens":126,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"ana-double-charge","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2121,"usage":{"input_tokens":6338,"output_tokens":87,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"route-network","trial":1,"success":true,"status":"completed","steps":4,"cost_micros":2602,"usage":{"input_tokens":7076,"output_tokens":191,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"close-reset-email","trial":2,"success":true,"status":"completed","steps":4,"cost_micros":2466,"usage":{"input_tokens":7603,"output_tokens":73,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"billing-high","trial":2,"success":true,"status":"completed","steps":3,"cost_micros":1572,"usage":{"input_tokens":4617,"output_tokens":74,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"assign-oldest-network","trial":2,"success":true,"status":"completed","steps":3,"cost_micros":1588,"usage":{"input_tokens":4748,"output_tokens":65,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"close-duplicate","trial":2,"success":true,"status":"completed","steps":3,"cost_micros":1758,"usage":{"input_tokens":5455,"output_tokens":48,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"vpn-outage","trial":2,"success":true,"status":"completed","steps":5,"cost_micros":3132,"usage":{"input_tokens":9722,"output_tokens":85,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"find-duplicates","trial":2,"success":true,"status":"completed","steps":6,"cost_micros":3435,"usage":{"input_tokens":10351,"output_tokens":131,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"ana-double-charge","trial":2,"success":true,"status":"completed","steps":4,"cost_micros":2103,"usage":{"input_tokens":6338,"output_tokens":80,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"route-network","trial":2,"success":true,"status":"completed","steps":4,"cost_micros":2602,"usage":{"input_tokens":7076,"output_tokens":191,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"close-reset-email","trial":3,"success":true,"status":"completed","steps":4,"cost_micros":2466,"usage":{"input_tokens":7603,"output_tokens":73,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"billing-high","trial":3,"success":true,"status":"completed","steps":3,"cost_micros":1582,"usage":{"input_tokens":4617,"output_tokens":78,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"assign-oldest-network","trial":3,"success":true,"status":"completed","steps":3,"cost_micros":1588,"usage":{"input_tokens":4748,"output_tokens":65,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"close-duplicate","trial":3,"success":true,"status":"completed","steps":3,"cost_micros":1758,"usage":{"input_tokens":5455,"output_tokens":48,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"vpn-outage","trial":3,"success":true,"status":"completed","steps":5,"cost_micros":3167,"usage":{"input_tokens":9722,"output_tokens":99,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"find-duplicates","trial":3,"success":true,"status":"completed","steps":7,"cost_micros":4465,"usage":{"input_tokens":13756,"output_tokens":134,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"ana-double-charge","trial":3,"success":true,"status":"completed","steps":4,"cost_micros":2106,"usage":{"input_tokens":6338,"output_tokens":81,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+{"task":"route-network","trial":3,"success":true,"status":"completed","steps":4,"cost_micros":2582,"usage":{"input_tokens":7076,"output_tokens":183,"cache_read_tokens":0,"cache_write_tokens":0},"error":null}
+
+task                     solved     rate  reliability   cost
+close-reset-email          3/3      100%  pass^3  100%  total $0.007398  per solved $0.002466  cache hit 0%
+billing-high               3/3      100%  pass^3  100%  total $0.004736  per solved $0.001579  cache hit 0%
+assign-oldest-network      3/3      100%  pass^3  100%  total $0.004764  per solved $0.001588  cache hit 0%
+close-duplicate            3/3      100%  pass^3  100%  total $0.005274  per solved $0.001758  cache hit 0%
+vpn-outage                 3/3      100%  pass^3  100%  total $0.009456  per solved $0.003152  cache hit 0%
+find-duplicates            3/3      100%  pass^3  100%  total $0.012345  per solved $0.004115  cache hit 0%
+ana-double-charge          3/3      100%  pass^3  100%  total $0.006330  per solved $0.002110  cache hit 0%
+route-network              3/3      100%  pass^3  100%  total $0.007786  per solved $0.002596  cache hit 0%
+ALL                       24/24     100%  pass^3  100%  total $0.058089  per solved $0.002421  cache hit 0%

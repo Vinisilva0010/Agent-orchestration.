@@ -16,6 +16,9 @@ pub struct TrialResult {
     pub cost_micros: u64,
     pub usage: Usage,
     pub error: Option<String>,
+    /// How the final desk differs from the expected desk, when it does.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mismatches: Vec<String>,
 }
 
 fn choose(n: u32, k: u32) -> f64 {
@@ -117,6 +120,7 @@ mod tests {
                 cache_write_tokens: 100,
             },
             error: None,
+            mismatches: Vec::new(),
         }
     }
 

@@ -1,6 +1,6 @@
 use bench::{
     harness::{BenchConfig, run_all, run_trial},
-    tasks,
+    tasks::{self, Scenario},
 };
 use engine::agent::RunStatus;
 use protocol::ModelTier;
@@ -53,13 +53,14 @@ fn config(server: &MockServer) -> BenchConfig {
         issuer_secret: SecretString::from("test-issuer-secret".to_string()),
         tier: ModelTier::Small,
         budget_micros: 200_000,
+        scenario: Scenario::Base,
     }
 }
 
 #[tokio::test]
 async fn a_correct_run_is_solved_and_costed() {
     let server = gateway(4).await;
-    let all = tasks::all();
+    let all = tasks::all(Scenario::Base);
     let task = all.iter().find(|t| t.id == "close-reset-email").unwrap();
     let result = run_trial(&config(&server), task, 1).await;
     assert_eq!(result.status, RunStatus::Completed);
@@ -71,7 +72,7 @@ async fn a_correct_run_is_solved_and_costed() {
 #[tokio::test]
 async fn closing_the_wrong_ticket_is_not_solved() {
     let server = gateway(2).await;
-    let all = tasks::all();
+    let all = tasks::all(Scenario::Base);
     let task = all.iter().find(|t| t.id == "close-reset-email").unwrap();
     let result = run_trial(&config(&server), task, 1).await;
     assert_eq!(result.status, RunStatus::Completed);
@@ -108,7 +109,7 @@ async fn rate_limited_trials_are_repeated_not_counted() {
             .mount(&server)
             .await;
     }
-    let all = tasks::all();
+    let all = tasks::all(Scenario::Base);
     let selected: Vec<_> = all
         .into_iter()
         .filter(|t| t.id == "close-reset-email")

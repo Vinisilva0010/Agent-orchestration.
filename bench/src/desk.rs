@@ -1,9 +1,11 @@
-//! A fictional support desk: twelve tickets and five tools. All data is
+//! A fictional support desk: fourteen tickets and five tools. All data is
 //! invented, so runs on free provider tiers never send real company data.
 
 use std::sync::{Arc, Mutex};
 
 use engine::tools::{Tool, ToolRegistry, TypedTool};
+
+use crate::catalog::{expired_product, routed_product};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -50,6 +52,8 @@ fn ticket(
 
 /// The starting state of every trial.
 pub fn seed() -> Vec<Ticket> {
+    let routed = routed_product();
+    let expired = expired_product();
     vec![
         ticket(
             1,
@@ -170,6 +174,32 @@ pub fn seed() -> Vec<Ticket> {
             Some("marina"),
             "open",
             1,
+        ),
+        ticket(
+            13,
+            "Laptop shuts down randomly",
+            &format!(
+                "My {} ({}) shuts down randomly. It was bought 8 months ago.",
+                routed.name, routed.sku
+            ),
+            "hardware",
+            "normal",
+            None,
+            "open",
+            11,
+        ),
+        ticket(
+            14,
+            "Laptop no longer turns on",
+            &format!(
+                "The {} ({}) we bought 30 months ago no longer turns on at all.",
+                expired.name, expired.sku
+            ),
+            "hardware",
+            "normal",
+            None,
+            "open",
+            12,
         ),
     ]
 }

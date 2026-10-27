@@ -11,14 +11,14 @@ use std::{process::ExitCode, time::Duration};
 use bench::{
     harness::{BenchConfig, run_all},
     metrics::{Summary, TrialResult, summarize},
-    tasks,
+    tasks::{self, Scenario},
 };
 use engine::secrets_guard;
 use protocol::ModelTier;
 use secrecy::SecretString;
 
 const USAGE: &str = "usage: bench [--tier small|standard|large] [--trials N] [--pace-ms N] \
-[--budget-micros N] [--task ID]...";
+[--budget-micros N] [--scenario base|knowledge] [--task ID]...";
 
 fn usd(micros: u64) -> String {
     format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000)
@@ -48,6 +48,7 @@ async fn main() -> ExitCode {
     let mut pace_ms = 0u64;
     let mut budget = 200_000u64;
     let mut only: Vec<String> = Vec::new();
+    let mut scenario = Scenario::Base;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let value = args.next();
@@ -67,6 +68,14 @@ async fn main() -> ExitCode {
             ("--trials", Some(v)) => v.parse().map(|n: u32| trials = n.max(1)).is_ok(),
             ("--pace-ms", Some(v)) => v.parse().map(|n| pace_ms = n).is_ok(),
             ("--budget-micros", Some(v)) => v.parse().map(|n: u64| budget = n.max(1)).is_ok(),
+            ("--scenario", Some("base")) => {
+                scenario = Scenario::Base;
+                true
+            }
+            ("--scenario", Some("knowledge")) => {
+                scenario = Scenario::Knowledge;
+                true
+            }
             ("--task", Some(v)) => {
                 only.push(v.to_string());
                 true
@@ -96,9 +105,10 @@ async fn main() -> ExitCode {
         issuer_secret: SecretString::from(issuer_secret),
         tier,
         budget_micros: budget,
+        scenario,
     };
 
-    let selected: Vec<_> = tasks::all()
+    let selected: Vec<_> = tasks::all(scenario)
         .into_iter()
         .filter(|task| only.is_empty() || only.iter().any(|id| id == task.id))
         .collect();

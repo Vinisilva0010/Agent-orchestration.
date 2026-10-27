@@ -5,6 +5,7 @@
 //! counts as solved only when the final state of the whole desk matches the
 //! expected state, so collateral changes count as failures.
 
+pub mod catalog;
 pub mod desk;
 pub mod harness;
 pub mod metrics;

@@ -16,7 +16,7 @@ use secrecy::SecretString;
 use crate::{
     desk::Desk,
     metrics::TrialResult,
-    tasks::{HANDBOOK, Task},
+    tasks::{HANDBOOK, Scenario, Task},
 };
 
 pub const AGENT_ID: &str = "bench";
@@ -28,10 +28,17 @@ pub struct BenchConfig {
     pub issuer_secret: SecretString,
     pub tier: ModelTier,
     pub budget_micros: u64,
+    pub scenario: Scenario,
 }
 
-pub fn system_prompt() -> String {
-    format!("{DEFAULT_SYSTEM}\n\n{HANDBOOK}")
+pub fn system_prompt(scenario: Scenario) -> String {
+    match scenario {
+        Scenario::Base => format!("{DEFAULT_SYSTEM}\n\n{HANDBOOK}"),
+        Scenario::Knowledge => format!(
+            "{DEFAULT_SYSTEM}\n\n{HANDBOOK}\n{}",
+            crate::catalog::catalog_text()
+        ),
+    }
 }
 
 fn unique_suffix() -> String {
@@ -51,6 +58,7 @@ pub async fn run_trial(config: &BenchConfig, task: &Task, trial: u32) -> TrialRe
         cost_micros: 0,
         usage: Usage::default(),
         error: Some(error),
+        mismatches: Vec::new(),
     };
 
     let desk = Desk::new();
@@ -76,7 +84,7 @@ pub async fn run_trial(config: &BenchConfig, task: &Task, trial: u32) -> TrialRe
         desk.tools(),
         AgentConfig {
             tier: config.tier,
-            system: system_prompt(),
+            system: system_prompt(config.scenario),
             max_steps: MAX_STEPS,
             max_output_tokens: MAX_OUTPUT_TOKENS,
         },
@@ -99,6 +107,7 @@ pub async fn run_trial(config: &BenchConfig, task: &Task, trial: u32) -> TrialRe
         cost_micros: state.cost_micros,
         usage: state.usage,
         error: state.error,
+        mismatches: task.differences(&desk.snapshot()),
     }
 }
 
