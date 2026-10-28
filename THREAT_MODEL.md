@@ -100,6 +100,9 @@ Rules:
   started and the run possibly still running; nothing resumes it yet. Runs
   are never repeated unsafely (irreversible calls stay at most once), but a
   person must check them.
+- A provider key passing through the server is zeroized in the server's own
+  value, but the HTTP request body built for the gateway is a copy that is
+  freed without being zeroized.
 
 ## 7. Implemented controls (gateway and agent engine)
 
@@ -170,3 +173,9 @@ Rules:
   deletes provider keys (never reads them), sets agent limits and reads usage.
   Whoever holds the admin secret cannot spend. The gateway refuses to start
   if they are equal, and the engine refuses to start with the admin secret.
+- Provider keys, agent limits and usage are managed through the server by
+  administrators only. The server holds only the gateway admin secret (it
+  refuses to start with the issuer secret, the master key or provider keys),
+  passes keys straight to the gateway, never stores, logs or returns them, and
+  never passes on gateway error messages, which could repeat a key. Who asked
+  is recorded in admin_actions (insert-only for the server) and audited.

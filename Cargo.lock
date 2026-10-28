@@ -1793,6 +1793,8 @@ dependencies = [
  "base64 0.23.1",
  "engine",
  "getrandom 0.4.3",
+ "reqwest",
+ "rustls",
  "secrecy",
  "serde",
  "serde_json",
@@ -1803,6 +1805,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "wiremock",
  "zeroize",
 ]
 

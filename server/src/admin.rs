@@ -91,7 +91,7 @@ impl From<AccountError> for ApiError {
     }
 }
 
-fn require_admin(user: &CurrentUser) -> Result<(), ApiError> {
+pub(crate) fn require_admin(user: &CurrentUser) -> Result<(), ApiError> {
     if user.role == "admin" {
         Ok(())
     } else {
@@ -99,11 +99,11 @@ fn require_admin(user: &CurrentUser) -> Result<(), ApiError> {
     }
 }
 
-fn actor(user: &CurrentUser) -> String {
+pub(crate) fn actor(user: &CurrentUser) -> String {
     format!("user:{}", user.id)
 }
 
-fn valid_agent_id(id: &str) -> bool {
+pub(crate) fn valid_agent_id(id: &str) -> bool {
     (1..=128).contains(&id.len())
         && id
             .bytes()

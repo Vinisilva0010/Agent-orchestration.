@@ -13,6 +13,9 @@
 //!     Runs the HTTP API with the server's own role. Reads SERVER_DATABASE_URL,
 //!     SERVER_PUBLIC_ORIGIN (where the workspace page is served, for example
 //!     https://agents.example.com) and SERVER_BIND (default 127.0.0.1:8090).
+//!     GATEWAY_ADMIN_SECRET and SERVER_GATEWAY_URL (default
+//!     http://127.0.0.1:8081) enable the key, limit and usage routes. Refuses
+//!     to start with the gateway issuer secret, the master key or provider keys.
 
 use std::{io::BufRead, net::SocketAddr, process::ExitCode, time::Duration};
 
@@ -110,13 +113,38 @@ async fn serve() -> Result<String, String> {
     let origin =
         std::env::var("SERVER_PUBLIC_ORIGIN").map_err(|_| "SERVER_PUBLIC_ORIGIN is not set")?;
     let bind = std::env::var("SERVER_BIND").unwrap_or_else(|_| "127.0.0.1:8090".to_string());
+    let problems = server::gateway_admin::unsafe_server_env(
+        std::env::vars_os().map(|(name, _)| name.to_string_lossy().into_owned()),
+    );
+    if !problems.is_empty() {
+        return Err(format!("unsafe environment: {}", problems.join("; ")));
+    }
+    let gateway = match std::env::var("GATEWAY_ADMIN_SECRET") {
+        Ok(secret) => {
+            let url = std::env::var("SERVER_GATEWAY_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8081".to_string());
+            Some(server::gateway_admin::GatewayAdmin::new(
+                &url,
+                SecretString::from(secret),
+            )?)
+        }
+        Err(_) => {
+            tracing::warn!(
+                "GATEWAY_ADMIN_SECRET is not set: key, limit and usage routes are disabled"
+            );
+            None
+        }
+    };
     let pool = PgPoolOptions::new()
         .max_connections(10)
         .acquire_timeout(Duration::from_secs(5))
         .connect(url.expose_secret())
         .await
         .map_err(|error| format!("could not connect: {error}"))?;
-    let state = server::http::AppState::new(pool, &origin)?;
+    let mut state = server::http::AppState::new(pool, &origin)?;
+    if let Some(gateway) = gateway {
+        state = state.with_gateway(gateway);
+    }
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
         .map_err(|error| format!("could not listen on {bind}: {error}"))?;

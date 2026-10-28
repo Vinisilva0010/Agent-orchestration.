@@ -134,6 +134,8 @@ pub struct AppState {
     pub(crate) pool: PgPool,
     public_origin: Arc<str>,
     limiter: Arc<SignInLimiter>,
+    /// Client for the gateway's admin routes, when configured.
+    pub(crate) gateway: Option<Arc<crate::gateway_admin::GatewayAdmin>>,
     /// Checked when the account does not exist, so every failure costs the
     /// same time.
     dummy_hash: Arc<str>,
@@ -151,6 +153,7 @@ impl AppState {
             pool,
             public_origin: public_origin.into(),
             limiter: Arc::default(),
+            gateway: None,
             dummy_hash: dummy_hash.into(),
         })
     }
@@ -174,6 +177,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/me", get(me))
         .merge(crate::admin::routes())
         .merge(crate::runs::routes())
+        .merge(crate::workspace::routes())
         .layer(middleware::from_fn_with_state(state.clone(), check_origin))
         .layer(middleware::from_fn(security_headers))
         .with_state(state)

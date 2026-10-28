@@ -6,8 +6,10 @@
 
 pub mod accounts;
 mod admin;
+pub mod gateway_admin;
 pub mod http;
 mod runs;
+mod workspace;
 
 use secrecy::{ExposeSecret, SecretString};
 use sqlx::{PgPool, migrate::MigrateError};
