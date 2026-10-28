@@ -82,6 +82,13 @@ const DENIED: &[(&str, &str)] = &[
     ),
     ("ao_gateway", "SELECT count(*) FROM _sqlx_migrations"),
     ("ao_gateway", "CREATE TABLE stolen (x int)"),
+    ("ao_engine", "SELECT count(*) FROM audit_events"),
+    ("ao_gateway", "SELECT count(*) FROM audit_events"),
+    ("ao_gateway", "DELETE FROM audit_events WHERE false"),
+    (
+        "ao_engine",
+        "SELECT audit_append('run.created', 'x', '{}'::jsonb)",
+    ),
 ];
 
 async fn try_as(pool: &PgPool, role: &str, sql: &'static str) -> Result<(), String> {

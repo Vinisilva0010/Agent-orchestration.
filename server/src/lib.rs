@@ -10,15 +10,19 @@ use sqlx::{PgPool, migrate::MigrateError};
 pub const PASSWORD_RULE: &str =
     "role passwords must be 32 to 128 characters of letters, digits, '-' or '_'";
 
-/// Applies the gateway and engine migrations. They share one migration table,
-/// so each migrator ignores the other's applied versions.
+/// Applies the gateway, engine and server migrations, in that order: the
+/// server's audit triggers attach to the other services' tables. They share
+/// one migration table, so each migrator ignores the others' applied versions.
 pub async fn migrate_all(pool: &PgPool) -> Result<(), MigrateError> {
     let mut gateway = sqlx::migrate!("../gateway/migrations");
     gateway.set_ignore_missing(true);
     gateway.run(pool).await?;
     let mut engine = sqlx::migrate!("../engine/migrations");
     engine.set_ignore_missing(true);
-    engine.run(pool).await
+    engine.run(pool).await?;
+    let mut server = sqlx::migrate!("./migrations");
+    server.set_ignore_missing(true);
+    server.run(pool).await
 }
 
 pub fn valid_password(password: &str) -> bool {

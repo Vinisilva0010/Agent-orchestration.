@@ -92,6 +92,10 @@ Rules:
   then a paused run can only be resumed through the engine library.
 - The `low_budget` flag compares the run's own spending with the remaining
   budget, so it is approximate when the task had spending before a resume.
+- The audit chain detects edited or removed events, but not removal of the
+  newest events, and an owner can rebuild the whole chain. Keeping the latest
+  hash outside the database closes this (Phase 9). Audited transactions must
+  use READ COMMITTED, the default, or the chain can fork (audit_verify finds it).
 
 ## 7. Implemented controls (gateway and agent engine)
 
@@ -127,3 +131,11 @@ Rules:
   events; the engine role cannot read provider credentials, task tokens or
   budgets. Migrations and role passwords are applied only by `server migrate`
   with the owner's connection. A test checks every allowed and denied operation.
+- Security-relevant changes (provider credentials, task tokens, budgets, run
+  creation, approval decisions, tier changes, run status, irreversible tool
+  start and finish) are recorded by database triggers in the same transaction
+  as the change. Services have no privilege on the audit table or on the
+  function that writes it, so they cannot skip, forge, read or delete events.
+  Events are append-only even for the owner while triggers are on, carry no
+  secrets, and are hash-chained; `audit_verify()` returns the first altered
+  event. Tests cover ordering, actors, absence of secrets and tampering.
