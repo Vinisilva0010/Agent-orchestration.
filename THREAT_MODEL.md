@@ -139,3 +139,11 @@ Rules:
   Events are append-only even for the owner while triggers are on, carry no
   secrets, and are hash-chained; `audit_verify()` returns the first altered
   event. Tests cover ordering, actors, absence of secrets and tampering.
+- Sign-in: Argon2id password hashes (OWASP minimum), the same answer and the
+  same work for a wrong password, an unknown, locked or disabled account; ten
+  wrong passwords lock an account for 15 minutes; twenty attempts per client
+  address per 5 minutes across all accounts. Sessions are random 32-byte
+  tokens in a `__Host-` cookie (Secure, HttpOnly, SameSite=Strict), stored
+  only as SHA-256, ending after 1 hour idle, 12 hours, sign-out, a password
+  change or account disabling. State-changing requests must carry the
+  workspace origin.
