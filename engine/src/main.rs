@@ -2,6 +2,9 @@
 //!
 //!   engine run [--tier small|standard|large] [--budget-micros N] [--detach] "task"
 //!   engine decide RUN_ID approve|reject
+//!   engine worker [--once]
+//!     Carries out people's requests recorded by the server; --once stops
+//!     when none is left.
 //!
 //! Reads DATABASE_URL, GATEWAY_ISSUER_SECRET and ENGINE_GATEWAY_URL (default
 //! http://127.0.0.1:8081). Refuses to start with provider keys or the vault
@@ -11,10 +14,11 @@
 //! environment or configuration, 10 waiting for approval, 64 usage error.
 
 use std::{
+    collections::HashMap,
     io::BufRead,
     process::ExitCode,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use engine::{
@@ -22,17 +26,17 @@ use engine::{
     gateway::{GatewayClient, issue_task_token},
     runner::Runner,
     secrets_guard,
-    store::{RunStore, StoredRun, connect},
+    store::{RunRequest, RunStore, StoredRun, connect},
     tools::{Tool, ToolRegistry, TypedTool},
 };
 use protocol::ModelTier;
 use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 const USAGE: &str = "usage:\n  engine run [--tier small|standard|large] [--budget-micros N] \
-[--detach] \"task\"\n  engine decide RUN_ID approve|reject";
+[--detach] \"task\"\n  engine decide RUN_ID approve|reject\n  engine worker [--once]";
 const DEFAULT_GATEWAY_URL: &str = "http://127.0.0.1:8081";
 const DEFAULT_BUDGET_MICROS: u64 = 50_000;
 const AGENT_ID: &str = "demo-agent";
@@ -256,7 +260,8 @@ async fn command_decide(settings: &Settings, store: &RunStore, run_id: &str, ans
 
 async fn run_cli(args: &[String]) -> u8 {
     let command = args.first().map(String::as_str);
-    if !matches!(command, Some("run")) && !(command == Some("decide") && args.len() == 3) {
+    if !matches!(command, Some("run" | "worker")) && !(command == Some("decide") && args.len() == 3)
+    {
         eprintln!("{USAGE}");
         return 64;
     }
@@ -280,6 +285,7 @@ async fn run_cli(args: &[String]) -> u8 {
     };
     match command {
         Some("run") => command_run(&settings, &store, &args[1..]).await,
+        Some("worker") => command_worker(&settings, &store, &args[1..]).await,
         _ => command_decide(&settings, &store, &args[1], &args[2]).await,
     }
 }
@@ -288,4 +294,135 @@ async fn run_cli(args: &[String]) -> u8 {
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     ExitCode::from(run_cli(&args).await)
+}
+
+async fn command_worker(settings: &Settings, store: &RunStore, args: &[String]) -> u8 {
+    let once = match args {
+        [] => false,
+        [flag] if flag == "--once" => true,
+        _ => {
+            eprintln!("{USAGE}");
+            return 64;
+        }
+    };
+    println!("{}", json!({ "event": "worker_started", "once": once }));
+    loop {
+        let claimed = tokio::select! {
+            _ = tokio::signal::ctrl_c() => return 0,
+            claimed = store.claim_request() => claimed,
+        };
+        match claimed {
+            Ok(Some(request)) => {
+                let outcome = match apply_request(settings, store, &request).await {
+                    Ok(outcome) => outcome,
+                    Err(error) => format!("failed: {error}"),
+                };
+                if let Err(error) = store.finish_request(request.id, &outcome).await {
+                    eprintln!(
+                        "could not record the outcome of request {}: {error}",
+                        request.id
+                    );
+                }
+                println!(
+                    "{}",
+                    json!({ "event": "request", "id": request.id, "run_id": request.run_id, "kind": request.kind, "outcome": outcome })
+                );
+            }
+            Ok(None) if once => return 0,
+            Ok(None) => tokio::time::sleep(Duration::from_secs(2)).await,
+            Err(error) => {
+                eprintln!("could not read requests: {error}");
+                if once {
+                    return 3;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
+}
+
+/// Carries out one request. Requests for runs that are no longer waiting are
+/// skipped, never applied to a later state.
+async fn apply_request(
+    settings: &Settings,
+    store: &RunStore,
+    request: &RunRequest,
+) -> Result<String, String> {
+    let run = store
+        .load(&request.run_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    match request.kind.as_str() {
+        "decision" => {
+            if run.state.status != RunStatus::AwaitingApproval {
+                return Ok("skipped: the run is not waiting for approval".to_string());
+            }
+            let approved: HashMap<String, bool> = request
+                .payload
+                .get("approve")
+                .and_then(Value::as_array)
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(|id| id.as_str().map(|id| (id.to_string(), true)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let agent = build_agent(settings, &run).await?;
+            let run = Runner::new(&agent, store)
+                .decide(&run.id, &Decision::PerCall(approved))
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(run.state.status.as_str().to_string())
+        }
+        "budget" => {
+            if run.state.status != RunStatus::AwaitingBudget {
+                return Ok("skipped: the run is not waiting for budget".to_string());
+            }
+            let budget = request
+                .payload
+                .get("budget_micros")
+                .and_then(Value::as_u64)
+                .ok_or("the request has no valid budget")?;
+            if budget <= run.budget_micros {
+                return Err("the new budget must be higher than the current one".to_string());
+            }
+            let run = store
+                .set_budget(run, budget)
+                .await
+                .map_err(|error| error.to_string())?;
+            // Issuing the token again raises the task limit in the gateway and
+            // keeps what was already spent.
+            let agent = build_agent(settings, &run).await?;
+            let state = agent
+                .record_budget_increase(run.state.clone())
+                .map_err(|error| error.to_string())?;
+            let run = store
+                .save(run, state)
+                .await
+                .map_err(|error| error.to_string())?;
+            let run = Runner::new(&agent, store)
+                .drive(run)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(run.state.status.as_str().to_string())
+        }
+        "cancel" => {
+            if !matches!(
+                run.state.status,
+                RunStatus::AwaitingApproval | RunStatus::AwaitingBudget
+            ) {
+                return Ok("skipped: only waiting runs can be cancelled".to_string());
+            }
+            let mut state = run.state.clone();
+            state.status = RunStatus::Failed;
+            state.error = Some(format!("cancelled by a person (request {})", request.id));
+            state.pending.clear();
+            let run = store
+                .save(run, state)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(run.state.status.as_str().to_string())
+        }
+        other => Err(format!("unknown request kind: {other}")),
+    }
 }

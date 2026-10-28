@@ -96,6 +96,10 @@ Rules:
   newest events, and an owner can rebuild the whole chain. Keeping the latest
   hash outside the database closes this (Phase 9). Audited transactions must
   use READ COMMITTED, the default, or the chain can fork (audit_verify finds it).
+- A worker that stops while carrying out a request leaves the request marked
+  started and the run possibly still running; nothing resumes it yet. Runs
+  are never repeated unsafely (irreversible calls stay at most once), but a
+  person must check them.
 
 ## 7. Implemented controls (gateway and agent engine)
 
@@ -154,3 +158,10 @@ Rules:
   the current password, counts wrong attempts toward the lockout, and ends
   every session except the new one it opens. Changes are audited with the
   acting person as the actor.
+- People act on runs only through requests: the server checks the person's
+  permission (use the agent to decide, manage to cancel, administrator for
+  budget; viewers never act) and only accepts approvals of calls the run is
+  waiting on, then records a request. The engine worker carries it out with
+  its own role; the server cannot change runs or reach the gateway. The
+  database allows one waiting request per run, each request is claimed by one
+  worker, and requests for runs that moved on are skipped.

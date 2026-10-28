@@ -221,3 +221,74 @@ impl RunStore {
         Ok(())
     }
 }
+
+/// A person's request about a run (decision, budget raise or cancellation),
+/// recorded by the server and carried out by a worker.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunRequest {
+    pub id: i64,
+    pub run_id: String,
+    pub kind: String,
+    pub payload: serde_json::Value,
+}
+
+impl RunStore {
+    /// Claims the oldest pending request. Each request is claimed by exactly
+    /// one worker, even with several running.
+    pub async fn claim_request(&self) -> Result<Option<RunRequest>, StoreError> {
+        let row: Option<(i64, String, String, String)> = sqlx::query_as(
+            "UPDATE run_requests SET processed_at = now(), outcome = 'started' \
+             WHERE id = (SELECT id FROM run_requests WHERE processed_at IS NULL \
+                         ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) \
+             RETURNING id, run_id, kind, payload::text",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_error)?;
+        row.map(|(id, run_id, kind, payload)| {
+            Ok(RunRequest {
+                id,
+                run_id,
+                kind,
+                payload: serde_json::from_str(&payload)
+                    .map_err(|_| StoreError::Invalid("request"))?,
+            })
+        })
+        .transpose()
+    }
+
+    pub async fn finish_request(&self, id: i64, outcome: &str) -> Result<(), StoreError> {
+        sqlx::query("UPDATE run_requests SET outcome = left($2, 500) WHERE id = $1")
+            .bind(id)
+            .bind(outcome)
+            .execute(&self.pool)
+            .await
+            .map_err(db_error)?;
+        Ok(())
+    }
+
+    /// Sets a run's budget if the run still has the version that was read.
+    pub async fn set_budget(
+        &self,
+        run: StoredRun,
+        budget_micros: u64,
+    ) -> Result<StoredRun, StoreError> {
+        let budget = i64::try_from(budget_micros).map_err(|_| StoreError::Invalid("budget"))?;
+        let version: Option<i64> = sqlx::query_scalar(
+            "UPDATE engine_runs SET budget_micros = $1, version = version + 1, updated_at = now() \
+             WHERE id = $2 AND version = $3 RETURNING version",
+        )
+        .bind(budget)
+        .bind(&run.id)
+        .bind(run.version)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_error)?;
+        let version = version.ok_or(StoreError::Conflict)?;
+        Ok(StoredRun {
+            version,
+            budget_micros,
+            ..run
+        })
+    }
+}

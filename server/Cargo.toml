@@ -27,4 +27,5 @@ tracing-subscriber.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+engine.workspace = true
 tower.workspace = true

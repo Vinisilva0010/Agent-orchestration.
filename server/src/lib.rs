@@ -7,6 +7,7 @@
 pub mod accounts;
 mod admin;
 pub mod http;
+mod runs;
 
 use secrecy::{ExposeSecret, SecretString};
 use sqlx::{PgPool, migrate::MigrateError};

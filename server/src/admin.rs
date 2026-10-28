@@ -39,7 +39,7 @@ pub(crate) fn routes() -> Router<AppState> {
 }
 
 impl ApiError {
-    fn forbidden() -> Self {
+    pub(crate) fn forbidden() -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
             code: "forbidden",
@@ -47,7 +47,7 @@ impl ApiError {
         }
     }
 
-    fn not_found() -> Self {
+    pub(crate) fn not_found() -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             code: "not_found",
@@ -55,7 +55,7 @@ impl ApiError {
         }
     }
 
-    fn invalid(message: &'static str) -> Self {
+    pub(crate) fn invalid(message: &'static str) -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             code: "invalid_request",
@@ -63,7 +63,7 @@ impl ApiError {
         }
     }
 
-    fn conflict(code: &'static str, message: &'static str) -> Self {
+    pub(crate) fn conflict(code: &'static str, message: &'static str) -> Self {
         Self {
             status: StatusCode::CONFLICT,
             code,
