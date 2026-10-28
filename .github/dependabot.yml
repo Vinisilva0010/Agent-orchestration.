@@ -18,9 +18,10 @@ updates:
       web-minor-and-patch:
         update-types: [minor, patch]
     ignore:
-      # Node type definitions must match the Node.js runtime (22.x).
-      # Bump the major version only together with the runtime.
-      - dependency-name: "@types/node"
+      # Major upgrades of the web toolchain (TypeScript, ESLint, Next.js,
+      # Node type definitions) break each other and are done by hand, tested
+      # with the interface work in Phase 4. TypeScript 7.0 broke the build.
+      - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
