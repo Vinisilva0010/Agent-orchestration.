@@ -147,3 +147,10 @@ Rules:
   only as SHA-256, ending after 1 hour idle, 12 hours, sign-out, a password
   change or account disabling. State-changing requests must carry the
   workspace origin.
+- Administration: only administrators create accounts, change roles, disable
+  accounts and grant per-agent permissions; the last active administrator
+  cannot be demoted or disabled (serialized with the bootstrap lock);
+  disabling an account revokes its sessions at once; a password change needs
+  the current password, counts wrong attempts toward the lockout, and ends
+  every session except the new one it opens. Changes are audited with the
+  acting person as the actor.

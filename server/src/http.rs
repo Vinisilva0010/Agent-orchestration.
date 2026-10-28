@@ -43,13 +43,13 @@ const SIGN_IN_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug)]
 pub struct ApiError {
-    status: StatusCode,
-    code: &'static str,
-    message: &'static str,
+    pub(crate) status: StatusCode,
+    pub(crate) code: &'static str,
+    pub(crate) message: &'static str,
 }
 
 impl ApiError {
-    fn invalid_credentials() -> Self {
+    pub(crate) fn invalid_credentials() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
             code: "invalid_credentials",
@@ -57,7 +57,7 @@ impl ApiError {
         }
     }
 
-    fn unauthorized() -> Self {
+    pub(crate) fn unauthorized() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
@@ -65,7 +65,7 @@ impl ApiError {
         }
     }
 
-    fn forbidden_origin() -> Self {
+    pub(crate) fn forbidden_origin() -> Self {
         Self {
             status: StatusCode::FORBIDDEN,
             code: "forbidden_origin",
@@ -73,7 +73,7 @@ impl ApiError {
         }
     }
 
-    fn too_many_attempts() -> Self {
+    pub(crate) fn too_many_attempts() -> Self {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,
             code: "too_many_attempts",
@@ -81,7 +81,7 @@ impl ApiError {
         }
     }
 
-    fn internal() -> Self {
+    pub(crate) fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
@@ -131,7 +131,7 @@ impl SignInLimiter {
 
 #[derive(Clone)]
 pub struct AppState {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
     public_origin: Arc<str>,
     limiter: Arc<SignInLimiter>,
     /// Checked when the account does not exist, so every failure costs the
@@ -172,6 +172,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/session", post(sign_in).delete(sign_out))
         .route("/api/me", get(me))
+        .merge(crate::admin::routes())
         .layer(middleware::from_fn_with_state(state.clone(), check_origin))
         .layer(middleware::from_fn(security_headers))
         .with_state(state)
@@ -214,13 +215,13 @@ async fn security_headers(request: Request, next: Next) -> Response {
     response
 }
 
-fn new_token() -> Result<String, ApiError> {
+pub(crate) fn new_token() -> Result<String, ApiError> {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(|_| ApiError::internal())?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn token_hash(token: &str) -> Vec<u8> {
+pub(crate) fn token_hash(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
@@ -241,14 +242,14 @@ fn session_token(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
-fn session_cookie(token: &str) -> Result<HeaderValue, ApiError> {
+pub(crate) fn session_cookie(token: &str) -> Result<HeaderValue, ApiError> {
     HeaderValue::from_str(&format!(
         "{SESSION_COOKIE}={token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age={SESSION_MAX_AGE_SECONDS}"
     ))
     .map_err(|_| ApiError::internal())
 }
 
-async fn set_actor(conn: &mut PgConnection, actor: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn set_actor(conn: &mut PgConnection, actor: &str) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT set_config('ao.actor', $1, true)")
         .bind(actor)
         .execute(conn)
@@ -374,7 +375,7 @@ async fn sign_in(
 }
 
 /// Ten wrong passwords in a row lock the account for 15 minutes.
-async fn record_failure(pool: &PgPool, user_id: i64) -> Result<(), ApiError> {
+pub(crate) async fn record_failure(pool: &PgPool, user_id: i64) -> Result<(), ApiError> {
     let mut tx = pool.begin().await?;
     set_actor(&mut tx, "anonymous").await?;
     sqlx::query(

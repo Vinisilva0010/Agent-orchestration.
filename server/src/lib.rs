@@ -5,6 +5,7 @@
 //! `ao_engine`), which can only use their own tables.
 
 pub mod accounts;
+mod admin;
 pub mod http;
 
 use secrecy::{ExposeSecret, SecretString};
