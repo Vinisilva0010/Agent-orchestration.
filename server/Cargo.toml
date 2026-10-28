@@ -11,3 +11,6 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+secrecy.workspace = true
+sqlx.workspace = true
+tokio.workspace = true

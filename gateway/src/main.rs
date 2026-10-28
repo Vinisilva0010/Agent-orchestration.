@@ -24,7 +24,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::from_env()?;
     let pool = gateway::db::connect(&config.database_url).await?;
-    gateway::db::migrate(&pool).await?;
     tracing::info!("database ready, migrations applied");
 
     let vault = Arc::new(Vault::new(pool.clone(), &config.master_key)?);

@@ -1739,6 +1739,11 @@ dependencies = [
 [[package]]
 name = "server"
 version = "0.1.0"
+dependencies = [
+ "secrecy",
+ "sqlx",
+ "tokio",
+]
 
 [[package]]
 name = "sha1"

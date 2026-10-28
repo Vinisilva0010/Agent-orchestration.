@@ -29,14 +29,15 @@ fn db_error(error: sqlx::Error) -> StoreError {
     StoreError::Database
 }
 
-pub async fn connect_and_migrate(database_url: &SecretString) -> Result<PgPool, String> {
+/// Opens a connection pool. Migrations are not applied here: they run with
+/// the database owner's connection through `server migrate`.
+pub async fn connect(database_url: &SecretString) -> Result<PgPool, String> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(Duration::from_secs(5))
         .connect(database_url.expose_secret())
         .await
         .map_err(|_| "could not connect to the database".to_string())?;
-    migrate(&pool).await.map_err(|error| error.to_string())?;
     Ok(pool)
 }
 

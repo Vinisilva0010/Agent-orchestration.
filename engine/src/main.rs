@@ -22,7 +22,7 @@ use engine::{
     gateway::{GatewayClient, issue_task_token},
     runner::Runner,
     secrets_guard,
-    store::{RunStore, StoredRun, connect_and_migrate},
+    store::{RunStore, StoredRun, connect},
     tools::{Tool, ToolRegistry, TypedTool},
 };
 use protocol::ModelTier;
@@ -271,7 +271,7 @@ async fn run_cli(args: &[String]) -> u8 {
             return 4;
         }
     };
-    let store = match connect_and_migrate(&settings.database_url).await {
+    let store = match connect(&settings.database_url).await {
         Ok(pool) => RunStore::new(pool),
         Err(error) => {
             eprintln!("database: {error}");
