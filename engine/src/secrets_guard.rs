@@ -4,7 +4,9 @@
 
 use thiserror::Error;
 
-const FORBIDDEN_NAMES: [&str; 1] = ["GATEWAY_MASTER_KEY"];
+/// The vault master key, and the gateway admin secret that changes keys and
+/// limits. The engine only needs the issuer secret.
+const FORBIDDEN_NAMES: [&str; 2] = ["GATEWAY_MASTER_KEY", "GATEWAY_ADMIN_SECRET"];
 const FORBIDDEN_NAME_PARTS: [&str; 2] = ["API_KEY", "PRIVATE_KEY"];
 /// Value prefixes of provider keys (OpenAI and Anthropic, Google, xAI).
 const PROVIDER_KEY_PREFIXES: [&str; 4] = ["sk-", "AIza", "AQ.", "xai-"];

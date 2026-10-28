@@ -32,6 +32,8 @@ pub struct Config {
     /// Secret that authorizes issuing task tokens. Held only by the Rust
     /// services, never by the agents process.
     pub issuer_secret: SecretString,
+    /// Opens the key, limit and usage routes. Cannot issue task tokens.
+    pub admin_secret: SecretString,
     /// Spending limit for the whole workspace per calendar month (UTC).
     pub monthly_budget_micros: u64,
     /// PostgreSQL connection URL. Contains the database password.
@@ -49,6 +51,7 @@ pub struct Config {
 pub struct RawConfig {
     pub bind: Option<String>,
     pub issuer_secret: Option<String>,
+    pub admin_secret: Option<String>,
     pub monthly_budget_usd: Option<String>,
     pub database_url: Option<String>,
     pub master_key: Option<String>,
@@ -62,6 +65,12 @@ pub struct RawConfig {
 pub enum ConfigError {
     #[error("GATEWAY_BIND is not a valid socket address: {0}")]
     InvalidBind(String),
+    #[error("GATEWAY_ADMIN_SECRET is not set")]
+    MissingAdminSecret,
+    #[error("GATEWAY_ADMIN_SECRET must have at least 32 characters")]
+    ShortAdminSecret,
+    #[error("GATEWAY_ADMIN_SECRET must differ from GATEWAY_ISSUER_SECRET")]
+    SameSecrets,
     #[error("GATEWAY_ISSUER_SECRET is not set")]
     MissingIssuerSecret,
     #[error("GATEWAY_ISSUER_SECRET must have at least 32 characters")]
@@ -92,6 +101,7 @@ impl Config {
         Self::from_raw(RawConfig {
             bind: std::env::var("GATEWAY_BIND").ok(),
             issuer_secret: std::env::var("GATEWAY_ISSUER_SECRET").ok(),
+            admin_secret: std::env::var("GATEWAY_ADMIN_SECRET").ok(),
             monthly_budget_usd: std::env::var("GATEWAY_MONTHLY_BUDGET_USD").ok(),
             database_url: std::env::var("DATABASE_URL").ok(),
             master_key: std::env::var("GATEWAY_MASTER_KEY").ok(),
@@ -111,6 +121,14 @@ impl Config {
             .map_err(|_| ConfigError::InvalidBind(bind_text.to_string()))?;
 
         let secret = raw.issuer_secret.ok_or(ConfigError::MissingIssuerSecret)?;
+        let admin_secret = raw.admin_secret.ok_or(ConfigError::MissingAdminSecret)?;
+        if admin_secret.chars().count() < MIN_ISSUER_SECRET_LEN {
+            return Err(ConfigError::ShortAdminSecret);
+        }
+        // One secret for both would undo the separation.
+        if admin_secret == secret {
+            return Err(ConfigError::SameSecrets);
+        }
         if secret.chars().count() < MIN_ISSUER_SECRET_LEN {
             return Err(ConfigError::IssuerSecretTooShort);
         }
@@ -151,6 +169,7 @@ impl Config {
         Ok(Self {
             bind,
             issuer_secret: SecretString::from(secret),
+            admin_secret: SecretString::from(admin_secret),
             monthly_budget_micros,
             database_url: SecretString::from(database_url),
             master_key: SecretString::from(master_key),
@@ -176,6 +195,7 @@ mod tests {
         RawConfig {
             bind: None,
             issuer_secret: Some("x".repeat(MIN_ISSUER_SECRET_LEN)),
+            admin_secret: Some("y".repeat(MIN_ISSUER_SECRET_LEN)),
             monthly_budget_usd: Some("50".to_string()),
             database_url: Some(DB_URL.to_string()),
             master_key: Some(master_key()),

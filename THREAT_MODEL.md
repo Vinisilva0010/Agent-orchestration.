@@ -165,3 +165,8 @@ Rules:
   its own role; the server cannot change runs or reach the gateway. The
   database allows one waiting request per run, each request is claimed by one
   worker, and requests for runs that moved on are skipped.
+- The gateway has two secrets: the issuer secret (engine only) issues and
+  revokes task tokens; the admin secret (server only) stores, replaces and
+  deletes provider keys (never reads them), sets agent limits and reads usage.
+  Whoever holds the admin secret cannot spend. The gateway refuses to start
+  if they are equal, and the engine refuses to start with the admin secret.

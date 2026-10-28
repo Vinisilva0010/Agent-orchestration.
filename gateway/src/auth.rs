@@ -62,3 +62,24 @@ pub async fn require_issuer(
         ApiError::unauthorized().into_response()
     }
 }
+
+/// Key, limit and usage routes require the admin secret, compared in constant
+/// time against its stored hash.
+pub async fn require_admin(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let authorized = bearer(request.headers()).is_some_and(|presented| {
+        bool::from(
+            sha256(presented.as_bytes())
+                .as_slice()
+                .ct_eq(state.admin_secret_hash.as_slice()),
+        )
+    });
+    if authorized {
+        next.run(request).await
+    } else {
+        ApiError::unauthorized().into_response()
+    }
+}

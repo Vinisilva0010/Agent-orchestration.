@@ -18,6 +18,7 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 pub const ISSUER_SECRET: &str = "test-issuer-secret-0123456789abcdef";
+pub const ADMIN_SECRET: &str = "test-admin-secret-0123456789abcdefgh";
 /// Workspace limit used in tests: 100 USD.
 pub const WORKSPACE_BUDGET_MICROS: u64 = 100_000_000;
 /// Task budget used by `issue_token`: 1 USD.
@@ -32,6 +33,7 @@ pub fn test_app(pool: PgPool) -> Router {
         Arc::new(Ledger::new(pool.clone(), WORKSPACE_BUDGET_MICROS)),
         Arc::new(Vault::new(pool, &master_key).unwrap()),
         &SecretString::from(ISSUER_SECRET.to_string()),
+        &SecretString::from(ADMIN_SECRET.to_string()),
     ))
 }
 

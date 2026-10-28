@@ -7,7 +7,7 @@ use sqlx::PgPool;
 const KEY: &str = "sk-test-not-a-real-key-1234567890";
 
 #[sqlx::test(migrations = "./migrations")]
-async fn credential_routes_require_issuer_secret(pool: PgPool) {
+async fn credential_routes_require_admin_secret(pool: PgPool) {
     let app = common::test_app(pool);
     let token = common::issue_token(&app, "task-1").await;
 
@@ -32,7 +32,7 @@ async fn stored_key_is_never_returned(pool: PgPool) {
         &app,
         "PUT",
         "/internal/credentials/anthropic",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         Some(json!({ "api_key": KEY })),
     )
     .await;
@@ -43,7 +43,7 @@ async fn stored_key_is_never_returned(pool: PgPool) {
         &app,
         "GET",
         "/internal/credentials",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         None,
     )
     .await;
@@ -56,7 +56,7 @@ async fn stored_key_is_never_returned(pool: PgPool) {
         &app,
         "GET",
         "/internal/credentials/anthropic",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         None,
     )
     .await;
@@ -70,7 +70,7 @@ async fn rejects_unknown_provider_and_invalid_keys(pool: PgPool) {
         &app,
         "PUT",
         "/internal/credentials/someprovider",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         Some(json!({ "api_key": KEY })),
     )
     .await;
@@ -80,7 +80,7 @@ async fn rejects_unknown_provider_and_invalid_keys(pool: PgPool) {
         &app,
         "PUT",
         "/internal/credentials/openai",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         Some(json!({ "api_key": "sk has spaces" })),
     )
     .await;
@@ -94,7 +94,7 @@ async fn deletes_credentials(pool: PgPool) {
         &app,
         "PUT",
         "/internal/credentials/gemini",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         Some(json!({ "api_key": KEY })),
     )
     .await;
@@ -103,7 +103,7 @@ async fn deletes_credentials(pool: PgPool) {
         &app,
         "DELETE",
         "/internal/credentials/gemini",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         None,
     )
     .await;
@@ -113,7 +113,7 @@ async fn deletes_credentials(pool: PgPool) {
         &app,
         "DELETE",
         "/internal/credentials/gemini",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         None,
     )
     .await;

@@ -62,6 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ledger,
         vault,
         &config.issuer_secret,
+        &config.admin_secret,
     );
     drop(config);
 

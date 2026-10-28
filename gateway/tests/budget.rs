@@ -110,7 +110,7 @@ async fn agent_monthly_budget_is_enforced(pool: PgPool) {
         &app,
         "PUT",
         "/internal/agents/agent-cheap/budget",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         Some(json!({ "monthly_budget_micros": 10 })),
     )
     .await;
@@ -148,7 +148,7 @@ async fn workspace_usage_requires_issuer_and_reports_spending(pool: PgPool) {
         &app,
         "GET",
         "/internal/usage",
-        Some(common::ISSUER_SECRET),
+        Some(common::ADMIN_SECRET),
         None,
     )
     .await;

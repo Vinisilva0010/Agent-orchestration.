@@ -41,6 +41,8 @@ pub struct AppState {
     pub vault: Arc<Vault>,
     /// Hash of the issuer secret. The plain secret is not kept after startup.
     issuer_secret_hash: [u8; 32],
+    /// Hash of the admin secret. The plain secret is not kept after startup.
+    admin_secret_hash: [u8; 32],
 }
 
 impl AppState {
@@ -50,6 +52,7 @@ impl AppState {
         ledger: Arc<Ledger>,
         vault: Arc<Vault>,
         issuer_secret: &SecretString,
+        admin_secret: &SecretString,
     ) -> Self {
         Self {
             provider,
@@ -57,6 +60,7 @@ impl AppState {
             ledger,
             vault,
             issuer_secret_hash: tokens::sha256(issuer_secret.expose_secret().as_bytes()),
+            admin_secret_hash: tokens::sha256(admin_secret.expose_secret().as_bytes()),
         }
     }
 }
@@ -79,6 +83,14 @@ pub fn app(state: AppState) -> Router {
             "/internal/tasks/{task_id}/revoke",
             post(routes::tokens::revoke),
         )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_issuer,
+        ));
+
+    // The admin secret changes keys and limits and reads usage, but cannot
+    // issue task tokens, so whoever holds it cannot spend.
+    let admin_routes = Router::new()
         .route(
             "/internal/agents/{agent_id}/budget",
             put(routes::budget::set_agent_budget),
@@ -91,13 +103,14 @@ pub fn app(state: AppState) -> Router {
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            auth::require_issuer,
+            auth::require_admin,
         ));
 
     Router::new()
         .route("/health", get(routes::health::health))
         .merge(task_routes)
         .merge(issuer_routes)
+        .merge(admin_routes)
         .with_state(state)
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
