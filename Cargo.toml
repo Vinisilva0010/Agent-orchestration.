@@ -13,6 +13,7 @@ repository = "https://github.com/Vinisilva0010/Agent-orchestration."
 engine = { path = "engine" }
 protocol = { path = "protocol" }
 aes-gcm = { version = "0.11.1", features = ["zeroize"] }
+argon2 = "0.6.0"
 axum = "0.8.9"
 base64 = "0.23.1"
 getrandom = "0.4.3"
@@ -44,3 +45,10 @@ all = { level = "warn", priority = -1 }
 # Keep only line tables in debug builds to reduce memory use while compiling.
 [profile.dev]
 debug = "line-tables-only"
+
+# Password hashing is far too slow unoptimized; tests hash real passwords.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

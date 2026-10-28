@@ -4,6 +4,8 @@
 //! connection. The services connect with their own roles (`ao_gateway`,
 //! `ao_engine`), which can only use their own tables.
 
+pub mod accounts;
+
 use secrecy::{ExposeSecret, SecretString};
 use sqlx::{PgPool, migrate::MigrateError};
 
@@ -45,6 +47,9 @@ pub async fn set_role_password(
         }
         "ao_engine" => {
             "DO $$ BEGIN EXECUTE format('ALTER ROLE ao_engine LOGIN PASSWORD %L', current_setting('ao.role_password')); END $$"
+        }
+        "ao_server" => {
+            "DO $$ BEGIN EXECUTE format('ALTER ROLE ao_server LOGIN PASSWORD %L', current_setting('ao.role_password')); END $$"
         }
         _ => return Err(format!("unknown role: {role}")),
     };
