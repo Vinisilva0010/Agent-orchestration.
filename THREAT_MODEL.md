@@ -74,8 +74,6 @@ Rules:
 - If a provider call succeeds but recording its usage fails, the gateway logs an error
   for manual reconciliation and still returns the result. Phase 2 turns this into a
   persisted pending item shown to admins.
-- The gateway uses the same database role for migrations and for queries. Phase 3
-  splits them so the runtime role cannot alter schema or bypass append-only triggers.
 - OpenAI and Anthropic providers are tested only against a local fake server (no paid
   key). For OpenAI, three assumptions await a live call: input_tokens includes cached
   and written tokens, GPT-6 accepts reasoning effort `low`, and the GPT-6 reasoning
@@ -123,3 +121,9 @@ Rules:
 - Each run gets a fixed tool subset (`ToolRegistry::only`); tools outside it
   cannot be called even if the model asks for them, and the subset never
   changes mid-run, so the cached prefix stays byte-identical (tested).
+- Each service connects with its own database role (`ao_gateway`, `ao_engine`)
+  that has only the table operations its code runs. Neither role can create or
+  change tables, read the other service's tables, or update or delete usage
+  events; the engine role cannot read provider credentials, task tokens or
+  budgets. Migrations and role passwords are applied only by `server migrate`
+  with the owner's connection. A test checks every allowed and denied operation.
