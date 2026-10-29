@@ -291,3 +291,20 @@ print("warned", file=sys.stderr)
     .await;
     assert!(next.stdout.contains("total: 3"), "{next:?}");
 }
+
+#[tokio::test]
+async fn the_docker_socket_and_host_secrets_are_out_of_reach() {
+    let out = run(
+        &sandbox(),
+        "host",
+        r#"
+import os
+paths = ["/var/run/docker.sock", "/run/docker.sock", "/root"]
+print([path for path in paths if os.path.exists(path) and os.access(path, os.R_OK)])
+print(open("/proc/1/environ", "rb").read().count(b"SECRET"))
+"#,
+    )
+    .await;
+    assert_eq!(out.exit_code, Some(0), "{out:?}");
+    assert!(out.stdout.contains("[]\n0"), "{out:?}");
+}

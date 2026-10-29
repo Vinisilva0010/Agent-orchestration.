@@ -191,3 +191,47 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
+
+#[cfg(test)]
+mod redirect_tests {
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::any};
+
+    use super::build_client;
+
+    /// A provider (or someone in between) answering with a redirect must not
+    /// move the call, and the key in its headers, to another address.
+    #[tokio::test]
+    async fn provider_calls_never_follow_redirects() {
+        let elsewhere = MockServer::start().await;
+        Mock::given(any())
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&elsewhere)
+            .await;
+        let provider = MockServer::start().await;
+        Mock::given(any())
+            .respond_with(
+                ResponseTemplate::new(307)
+                    .insert_header("location", format!("{}/steal", elsewhere.uri()).as_str()),
+            )
+            .mount(&provider)
+            .await;
+
+        let client = build_client(false).unwrap();
+        let response = client
+            .get(format!("{}/v1/models", provider.uri()))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 307);
+        assert!(
+            elsewhere.received_requests().await.unwrap().is_empty(),
+            "the redirect was followed"
+        );
+
+        let https_only = build_client(true).unwrap();
+        assert!(
+            https_only.get(provider.uri()).send().await.is_err(),
+            "plain http was allowed"
+        );
+    }
+}

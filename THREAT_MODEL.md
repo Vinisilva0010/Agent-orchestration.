@@ -202,3 +202,6 @@ Rules:
   at once, and refuses to start with gateway secrets, provider keys or
   database URLs. The engine's run_python tool reaches it with the sandbox URL
   and secret only, always under the run's own task folder.
+- The attack suite (ATTACKS.md) maps every attack class to the tests that
+  prove its defense; scripts/attack-suite.sh fails if any named test is
+  missing or failing, and CI runs it on every change.
