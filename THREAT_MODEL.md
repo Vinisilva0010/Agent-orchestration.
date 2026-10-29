@@ -103,6 +103,12 @@ Rules:
 - A provider key passing through the server is zeroized in the server's own
   value, but the HTTP request body built for the gateway is a copy that is
   freed without being zeroized.
+- The sandbox uses Docker's default runtime (runc), which shares the host
+  kernel; gVisor (runsc) is supported but not installed in development, and
+  the installer configures it (Phase 8). Code cannot write result files yet
+  (output is text only) and has no network at all; allowlisted egress comes
+  with connectors (Phase 7). Whoever can run the sandbox can use Docker,
+  which is root-equivalent on the host, so only the sandbox may hold it.
 
 ## 7. Implemented controls (gateway and agent engine)
 
@@ -179,3 +185,10 @@ Rules:
   passes keys straight to the gateway, never stores, logs or returns them, and
   never passes on gateway error messages, which could repeat a key. Who asked
   is recorded in admin_actions (insert-only for the server) and audited.
+- Agent code runs in a throwaway container per call: no network, all
+  capabilities dropped, no new privileges, read-only root filesystem, user
+  65534, a 16 MB noexec /tmp, limits on memory (256 MB), processes (64), CPU,
+  open files, time (30 s) and output (64 KB), and only the task's folder
+  mounted read-only. Task ids are validated, the image is pinned by digest,
+  the server's environment never reaches the code, and the container is
+  removed by name even after a timeout. Tests run real escape attempts.
