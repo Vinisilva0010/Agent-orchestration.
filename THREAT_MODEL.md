@@ -196,3 +196,9 @@ Rules:
   8 MB each and 16 MB in total, into the task folder's out/, never written
   through an existing link. Corrupting the result stream can only spoil the
   run's own results.
+- The sandbox runs as its own service on loopback and is the only process
+  that uses Docker. It needs its own secret (32+ characters, compared in
+  constant time, checked before the body is read), runs at most 4 code runs
+  at once, and refuses to start with gateway secrets, provider keys or
+  database URLs. The engine's run_python tool reaches it with the sandbox URL
+  and secret only, always under the run's own task folder.

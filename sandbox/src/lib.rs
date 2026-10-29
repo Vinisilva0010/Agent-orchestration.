@@ -12,6 +12,8 @@
 //! (gVisor) is configured, which adds a user-space kernel between the code
 //! and the host.
 
+pub mod service;
+
 use std::{
     io::Read,
     path::{Path, PathBuf},

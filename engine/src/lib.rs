@@ -9,6 +9,7 @@
 pub mod agent;
 pub mod gateway;
 pub mod runner;
+pub mod sandbox;
 pub mod secrets_guard;
 pub mod store;
 pub mod tools;

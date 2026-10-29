@@ -1639,11 +1639,19 @@ dependencies = [
 name = "sandbox"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "getrandom 0.4.3",
+ "secrecy",
+ "serde",
  "serde_json",
+ "sha2 0.11.1",
+ "subtle",
  "tar",
  "thiserror",
  "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

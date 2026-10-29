@@ -6,6 +6,9 @@
 //!     Carries out people's requests recorded by the server; --once stops
 //!     when none is left.
 //!
+//! SANDBOX_URL and SANDBOX_SECRET, when both are set, give agents the run_python
+//! tool.
+//!
 //! Reads DATABASE_URL, GATEWAY_ISSUER_SECRET and ENGINE_GATEWAY_URL (default
 //! http://127.0.0.1:8081). Refuses to start with provider keys or the vault
 //! master key in the environment. Prints one JSON event per line.
@@ -25,6 +28,7 @@ use engine::{
     agent::{Agent, AgentConfig, Decision, RunState, RunStatus},
     gateway::{GatewayClient, issue_task_token},
     runner::Runner,
+    sandbox::{SandboxClient, run_python_tool},
     secrets_guard,
     store::{RunRequest, RunStore, StoredRun, connect},
     tools::{Tool, ToolRegistry, TypedTool},
@@ -56,7 +60,7 @@ fn latest_report() -> String {
     "latest".to_string()
 }
 
-fn demo_tools() -> ToolRegistry {
+fn demo_tools(sandbox: Option<Arc<dyn Tool>>) -> ToolRegistry {
     let get_time = TypedTool::new(
         "get_time",
         "Returns the current Unix time.",
@@ -79,7 +83,8 @@ fn demo_tools() -> ToolRegistry {
         },
     )
     .mark_irreversible();
-    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(get_time), Arc::new(archive)];
+    let mut tools: Vec<Arc<dyn Tool>> = vec![Arc::new(get_time), Arc::new(archive)];
+    tools.extend(sandbox);
     ToolRegistry::new(tools).unwrap_or_default()
 }
 
@@ -87,6 +92,7 @@ struct Settings {
     gateway_url: String,
     issuer_secret: SecretString,
     database_url: SecretString,
+    sandbox: Option<Arc<SandboxClient>>,
 }
 
 fn settings() -> Result<Settings, String> {
@@ -101,6 +107,17 @@ fn settings() -> Result<Settings, String> {
             .unwrap_or_else(|_| DEFAULT_GATEWAY_URL.to_string()),
         issuer_secret: SecretString::from(required("GATEWAY_ISSUER_SECRET")?),
         database_url: SecretString::from(required("DATABASE_URL")?),
+        sandbox: match (
+            std::env::var("SANDBOX_URL"),
+            std::env::var("SANDBOX_SECRET"),
+        ) {
+            (Ok(url), Ok(secret)) => Some(Arc::new(SandboxClient::new(
+                &url,
+                SecretString::from(secret),
+            )?)),
+            (Err(_), Err(_)) => None,
+            _ => return Err("set both SANDBOX_URL and SANDBOX_SECRET, or neither".to_string()),
+        },
     })
 }
 
@@ -134,7 +151,11 @@ async fn build_agent(settings: &Settings, run: &StoredRun) -> Result<Agent, Stri
         tier: run.tier,
         ..AgentConfig::default()
     };
-    Ok(Agent::new(client, demo_tools(), config))
+    let sandbox = settings
+        .sandbox
+        .as_ref()
+        .map(|sandbox| run_python_tool(Arc::clone(sandbox), run.id.clone()));
+    Ok(Agent::new(client, demo_tools(sandbox), config))
 }
 
 fn emit_approval(agent: &Agent, run: &StoredRun) {
