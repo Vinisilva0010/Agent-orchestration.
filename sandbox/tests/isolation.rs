@@ -222,3 +222,50 @@ fn task_ids_cannot_leave_the_root() {
         );
     }
 }
+
+#[tokio::test]
+async fn result_files_come_back_within_limits_and_the_next_run_sees_them() {
+    let sandbox = sandbox();
+    let out = run(
+        &sandbox,
+        "results",
+        r#"
+import os, sys
+open("/tmp/out/a-report.txt", "w").write("total: 3")
+for i in range(25):
+    open(f"/tmp/out/extra-{i:02d}.txt", "w").write("x")
+open("/tmp/out/big.bin", "wb").write(b"0" * (9 * 1024 * 1024))
+os.symlink("/etc/passwd", "/tmp/out/link")
+open("/tmp/out/.hidden", "w").write("x")
+print("warned", file=sys.stderr)
+"#,
+    )
+    .await;
+    assert_eq!(out.exit_code, Some(0), "{out:?}");
+    assert!(
+        out.stdout.contains("warned"),
+        "the program's errors belong to its output: {out:?}"
+    );
+    assert!(out.files.len() <= 20, "{:?}", out.files);
+    for refused in ["big.bin", "link", ".hidden"] {
+        assert!(
+            !out.files.iter().any(|file| file == refused),
+            "{refused} came back: {:?}",
+            out.files
+        );
+    }
+    let folder = sandbox.task_folder("results").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(folder.join("out/a-report.txt")).unwrap(),
+        "total: 3"
+    );
+    assert!(!folder.join("out/link").exists());
+
+    let next = run(
+        &sandbox,
+        "results",
+        "print(open('/data/out/a-report.txt').read())\n",
+    )
+    .await;
+    assert!(next.stdout.contains("total: 3"), "{next:?}");
+}

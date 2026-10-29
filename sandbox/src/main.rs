@@ -44,6 +44,7 @@ async fn main() -> ExitCode {
                 json!({
                     "exit_code": output.exit_code, "timed_out": output.timed_out,
                     "truncated": output.truncated, "stdout": output.stdout, "stderr": output.stderr,
+                    "files": output.files,
                 })
             );
             if output.exit_code == Some(0) {

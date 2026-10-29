@@ -105,8 +105,7 @@ Rules:
   freed without being zeroized.
 - The sandbox uses Docker's default runtime (runc), which shares the host
   kernel; gVisor (runsc) is supported but not installed in development, and
-  the installer configures it (Phase 8). Code cannot write result files yet
-  (output is text only) and has no network at all; allowlisted egress comes
+  the installer configures it (Phase 8). Code has no network at all; allowlisted egress comes
   with connectors (Phase 7). Whoever can run the sandbox can use Docker,
   which is root-equivalent on the host, so only the sandbox may hold it.
 
@@ -192,3 +191,8 @@ Rules:
   mounted read-only. Task ids are validated, the image is pinned by digest,
   the server's environment never reaches the code, and the container is
   removed by name even after a timeout. Tests run real escape attempts.
+- Result files: code writes to a 32 MB in-memory /tmp/out; only plain files
+  with simple names (no paths, links or hidden files) come back, at most 20,
+  8 MB each and 16 MB in total, into the task folder's out/, never written
+  through an existing link. Corrupting the result stream can only spoil the
+  run's own results.
