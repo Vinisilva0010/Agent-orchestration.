@@ -245,7 +245,7 @@ impl Sandbox {
                 Ok(RunOutput {
                     exit_code: status.code(),
                     stdout,
-                    stderr,
+                    stderr: without_docker_notices(&stderr),
                     timed_out: false,
                     truncated: out_cut || err_cut,
                 })
@@ -280,4 +280,16 @@ async fn read_capped(mut reader: impl AsyncRead + Unpin, limit: usize) -> (Strin
         }
     }
     (String::from_utf8_lossy(&kept).into_owned(), truncated)
+}
+
+/// Docker prints notices about the host (such as missing swap accounting)
+/// on the same stream as the program. They are not the program's output.
+fn without_docker_notices(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| {
+            !line.starts_with("WARNING: Your kernel does not support swap limit capabilities")
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
 }
