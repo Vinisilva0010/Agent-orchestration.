@@ -1,3 +1,5 @@
+//! `sandbox prepare`: pulls the pinned image (runs never pull).
+//!
 //! `sandbox run TASK_ID`: runs Python code read from standard input in the
 //! task's isolated container and prints the result as JSON.
 //!
@@ -12,6 +14,18 @@ use serde_json::json;
 #[tokio::main]
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["prepare"] {
+        return match sandbox::ensure_image().await {
+            Ok(()) => {
+                println!("sandbox image ready");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(3)
+            }
+        };
+    }
     let [command, task_id] = args.as_slice() else {
         eprintln!("usage: sandbox run TASK_ID   (code on standard input)");
         return ExitCode::from(64);

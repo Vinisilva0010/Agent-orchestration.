@@ -210,6 +210,8 @@ impl Sandbox {
         let mut args: Vec<String> = [
             "run",
             "--rm",
+            "--pull",
+            "never",
             "--interactive",
             "--name",
             &name,
@@ -436,4 +438,36 @@ fn without_docker_notices(text: &str) -> String {
         })
         .map(|line| format!("{line}\n"))
         .collect()
+}
+
+/// Pulls the pinned image if it is not present. Runs never pull (they use
+/// `--pull never`), so a run's time limit is spent on the code only and a
+/// registry outage cannot stall an agent mid-task.
+pub async fn ensure_image() -> Result<(), SandboxError> {
+    let present = Command::new("docker")
+        .args(["image", "inspect", "--format", "{{.Id}}", IMAGE])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .map_err(|error| SandboxError::Docker(error.to_string()))?
+        .success();
+    if present {
+        return Ok(());
+    }
+    let pulled = Command::new("docker")
+        .args(["pull", "--quiet", IMAGE])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .map_err(|error| SandboxError::Docker(error.to_string()))?
+        .success();
+    if pulled {
+        Ok(())
+    } else {
+        Err(SandboxError::Docker(
+            "could not pull the sandbox image".to_string(),
+        ))
+    }
 }

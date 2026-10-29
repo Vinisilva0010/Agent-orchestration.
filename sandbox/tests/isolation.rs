@@ -4,7 +4,29 @@ use std::{process::Command, time::Duration};
 
 use sandbox::{Limits, RunOutput, Sandbox, SandboxError};
 
+/// Runs never pull, so the pinned image is pulled once before the tests.
+fn prepare_image() {
+    static PREPARED: std::sync::Once = std::sync::Once::new();
+    PREPARED.call_once(|| {
+        let present = Command::new("docker")
+            .args(["image", "inspect", sandbox::IMAGE])
+            .output()
+            .unwrap()
+            .status
+            .success();
+        if !present {
+            let pulled = Command::new("docker")
+                .args(["pull", "--quiet", sandbox::IMAGE])
+                .status()
+                .unwrap()
+                .success();
+            assert!(pulled, "could not pull the sandbox image");
+        }
+    });
+}
+
 fn sandbox() -> Sandbox {
+    prepare_image();
     let mut random = [0u8; 8];
     getrandom::fill(&mut random).unwrap();
     let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
