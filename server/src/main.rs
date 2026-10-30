@@ -13,6 +13,8 @@
 //!     Runs the HTTP API with the server's own role. Reads SERVER_DATABASE_URL,
 //!     SERVER_PUBLIC_ORIGIN (where the workspace page is served, for example
 //!     https://agents.example.com) and SERVER_BIND (default 127.0.0.1:8090).
+//!     SERVER_TRUSTED_PROXIES lists the reverse proxy IPs whose
+//!     X-Forwarded-For is believed for sign-in rate limits (default: none).
 //!     GATEWAY_ADMIN_SECRET and SERVER_GATEWAY_URL (default
 //!     http://127.0.0.1:8081) enable the key, limit and usage routes. Refuses
 //!     to start with the gateway issuer secret, the master key or provider keys.
@@ -142,6 +144,9 @@ async fn serve() -> Result<String, String> {
         .await
         .map_err(|error| format!("could not connect: {error}"))?;
     let mut state = server::http::AppState::new(pool, &origin)?;
+    if let Ok(list) = std::env::var("SERVER_TRUSTED_PROXIES") {
+        state = state.with_trusted_proxies(server::http::parse_trusted_proxies(&list)?);
+    }
     if let Some(gateway) = gateway {
         state = state.with_gateway(gateway);
     }

@@ -134,6 +134,8 @@ pub struct AppState {
     pub(crate) pool: PgPool,
     public_origin: Arc<str>,
     limiter: Arc<SignInLimiter>,
+    /// Reverse proxies whose X-Forwarded-For header is believed.
+    trusted_proxies: Arc<[IpAddr]>,
     /// Client for the gateway's admin routes, when configured.
     pub(crate) gateway: Option<Arc<crate::gateway_admin::GatewayAdmin>>,
     /// Checked when the account does not exist, so every failure costs the
@@ -153,10 +155,70 @@ impl AppState {
             pool,
             public_origin: public_origin.into(),
             limiter: Arc::default(),
+            trusted_proxies: Arc::from(Vec::new()),
             gateway: None,
             dummy_hash: dummy_hash.into(),
         })
     }
+
+    /// Believe X-Forwarded-For from these reverse proxies.
+    pub fn with_trusted_proxies(mut self, proxies: Vec<IpAddr>) -> Self {
+        self.trusted_proxies = proxies.into();
+        self
+    }
+}
+
+/// The most X-Forwarded-For entries looked at, and the most trusted proxies.
+const MAX_FORWARDED_HOPS: usize = 32;
+
+/// Parses SERVER_TRUSTED_PROXIES: IP addresses separated by commas.
+pub fn parse_trusted_proxies(value: &str) -> Result<Vec<IpAddr>, String> {
+    let mut proxies = Vec::new();
+    for entry in value
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
+        let ip: IpAddr = entry
+            .parse()
+            .map_err(|_| format!("SERVER_TRUSTED_PROXIES has an invalid IP address: {entry}"))?;
+        proxies.push(ip.to_canonical());
+    }
+    if proxies.len() > MAX_FORWARDED_HOPS {
+        return Err(format!(
+            "SERVER_TRUSTED_PROXIES lists more than {MAX_FORWARDED_HOPS} addresses"
+        ));
+    }
+    Ok(proxies)
+}
+
+/// The address sign-in attempts are counted against.
+///
+/// X-Forwarded-For is believed only when the connection comes from a trusted
+/// proxy. Each proxy appends the address it received the request from, and
+/// everything to the left can be written by the client, so the client is the
+/// rightmost entry that is not a trusted proxy. Anything unreadable falls
+/// back to the connecting address.
+pub fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted: &[IpAddr]) -> IpAddr {
+    let peer = peer.to_canonical();
+    if !trusted.contains(&peer) {
+        return peer;
+    }
+    let mut hops = Vec::new();
+    for value in headers.get_all("x-forwarded-for") {
+        let Ok(value) = value.to_str() else {
+            return peer;
+        };
+        hops.extend(value.split(','));
+    }
+    for hop in hops.iter().rev().take(MAX_FORWARDED_HOPS) {
+        match hop.trim().parse::<IpAddr>() {
+            Ok(ip) if trusted.contains(&ip.to_canonical()) => continue,
+            Ok(ip) => return ip.to_canonical(),
+            Err(_) => return peer,
+        }
+    }
+    peer
 }
 
 /// `scheme://host[:port]`, exactly as browsers send it in the Origin header.
@@ -318,9 +380,11 @@ pub struct SignInRequest {
 async fn sign_in(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(request): Json<SignInRequest>,
 ) -> Result<Response, ApiError> {
-    if !state.limiter.allow(peer.ip()) {
+    let client = client_ip(peer.ip(), &headers, &state.trusted_proxies);
+    if !state.limiter.allow(client) {
         return Err(ApiError::too_many_attempts());
     }
     let password = SecretString::from(request.password);
