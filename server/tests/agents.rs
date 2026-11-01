@@ -1,5 +1,7 @@
 //! Agent registry rules through the real router.
 
+mod common;
+
 use std::net::SocketAddr;
 
 use axum::{
@@ -49,7 +51,7 @@ async fn setup(pool: &PgPool) -> Setup {
     )
     .await
     .unwrap();
-    let app = router(AppState::new(pool.clone(), ORIGIN).unwrap())
+    let app = router(AppState::new(common::server_pool(pool).await, ORIGIN).unwrap())
         .layer(MockConnectInfo(SocketAddr::from(([203, 0, 113, 7], 4000))));
     let admin = sign_in(&app, "admin@example.com", ADMIN_PASSWORD).await;
     let alice = sign_in(&app, "alice@example.com", ALICE_PASSWORD).await;

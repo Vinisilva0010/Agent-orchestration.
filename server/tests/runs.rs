@@ -1,6 +1,8 @@
 //! Requests about waiting runs: who may make them, one at a time, and each
 //! claimed by exactly one worker.
 
+mod common;
+
 use std::net::SocketAddr;
 
 use axum::{
@@ -96,7 +98,7 @@ async fn setup(pool: &PgPool) -> Setup {
         .await
         .unwrap();
     }
-    let app = router(AppState::new(pool.clone(), ORIGIN).unwrap())
+    let app = router(AppState::new(common::server_pool(pool).await, ORIGIN).unwrap())
         .layer(MockConnectInfo(SocketAddr::from(([203, 0, 113, 7], 4000))));
     Setup { app, alice_id }
 }

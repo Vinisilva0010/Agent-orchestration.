@@ -1,5 +1,7 @@
 //! Administration rules through the real router.
 
+mod common;
+
 use std::net::SocketAddr;
 
 use axum::{
@@ -47,7 +49,7 @@ async fn setup(pool: &PgPool) -> Setup {
     )
     .await
     .unwrap();
-    let app = router(AppState::new(pool.clone(), ORIGIN).unwrap())
+    let app = router(AppState::new(common::server_pool(pool).await, ORIGIN).unwrap())
         .layer(MockConnectInfo(SocketAddr::from(([203, 0, 113, 7], 4000))));
     Setup {
         app,

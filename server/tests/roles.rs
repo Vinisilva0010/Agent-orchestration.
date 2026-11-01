@@ -73,6 +73,7 @@ const ALLOWED: &[(&str, &str)] = &[
         "INSERT INTO task_starts (agent_id, task, budget_micros, requested_by) SELECT 'a', 't', 1, 1 WHERE false",
     ),
     ("ao_server", "SELECT count(*) FROM task_starts"),
+    ("ao_server", "SELECT count(*) FROM engine_tool_executions"),
     (
         "ao_engine",
         "SELECT id FROM task_starts WHERE false FOR UPDATE SKIP LOCKED",
@@ -146,6 +147,10 @@ const DENIED: &[(&str, &str)] = &[
         "UPDATE task_starts SET processed_at = now() WHERE false",
     ),
     ("ao_server", "DELETE FROM task_starts WHERE false"),
+    (
+        "ao_server",
+        "UPDATE engine_tool_executions SET state = 'finished' WHERE false",
+    ),
     ("ao_engine", "UPDATE task_starts SET task = 'x' WHERE false"),
     (
         "ao_engine",

@@ -1,5 +1,7 @@
 //! Sign-in, sessions and origin checks through the real router.
 
+mod common;
+
 use std::net::SocketAddr;
 
 use axum::{
@@ -32,7 +34,7 @@ async fn app(pool: &PgPool) -> Router {
     )
     .await
     .unwrap();
-    router(AppState::new(pool.clone(), ORIGIN).unwrap())
+    router(AppState::new(common::server_pool(pool).await, ORIGIN).unwrap())
         .layer(MockConnectInfo(SocketAddr::from(([203, 0, 113, 7], 4000))))
 }
 

@@ -148,7 +148,9 @@ Rules:
   change tables, read the other service's tables, or update or delete usage
   events; the engine role cannot read provider credentials, task tokens or
   budgets. Migrations and role passwords are applied only by `server migrate`
-  with the owner's connection. A test checks every allowed and denied operation.
+  with the owner's connection. A test checks every allowed and denied operation,
+  and the server's HTTP tests run as `ao_server`, so a route that needs more
+  than the role has fails its tests.
 - Security-relevant changes (provider credentials, task tokens, budgets, run
   creation, approval decisions, tier changes, run status, irreversible tool
   start and finish) are recorded by database triggers in the same transaction

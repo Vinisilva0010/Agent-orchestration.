@@ -1,6 +1,8 @@
 //! Keys, limits and usage through a fake gateway: administrators only, the
 //! admin secret on every call, and keys never coming back.
 
+mod common;
+
 use std::net::SocketAddr;
 
 use axum::{
@@ -50,7 +52,7 @@ async fn setup(pool: &PgPool, gateway: &MockServer) -> (Router, i64) {
     .unwrap();
     let client =
         GatewayAdmin::new(&gateway.uri(), SecretString::from(ADMIN_SECRET.to_string())).unwrap();
-    let state = AppState::new(pool.clone(), ORIGIN)
+    let state = AppState::new(common::server_pool(pool).await, ORIGIN)
         .unwrap()
         .with_gateway(client);
     (with_mock_peer(router(state)), admin_id)
@@ -260,7 +262,9 @@ async fn limits_and_usage_are_forwarded_and_need_a_configured_gateway(pool: PgPo
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("2026-10"), "{body}");
 
-    let unconfigured = with_mock_peer(router(AppState::new(pool.clone(), ORIGIN).unwrap()));
+    let unconfigured = with_mock_peer(router(
+        AppState::new(common::server_pool(&pool).await, ORIGIN).unwrap(),
+    ));
     assert_eq!(
         call(&unconfigured, Method::GET, "/api/usage", Some(&admin), None)
             .await

@@ -17,7 +17,7 @@ use server::{
     accounts::{self, Role},
     http::{AppState, router},
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use tower::ServiceExt;
 
 pub const ORIGIN: &str = "http://localhost:3000";
@@ -58,7 +58,8 @@ pub async fn setup(pool: &PgPool) -> Setup {
             .unwrap();
         people.push((id, email));
     }
-    let app = router(AppState::new(pool.clone(), ORIGIN).unwrap())
+    let server_pool = server_pool(pool).await;
+    let app = router(AppState::new(server_pool, ORIGIN).unwrap())
         .layer(MockConnectInfo(SocketAddr::from(([203, 0, 113, 7], 4000))));
     let admin = Person {
         id: admin_id,
@@ -81,6 +82,23 @@ pub async fn setup(pool: &PgPool) -> Setup {
         bob,
         viewer,
     }
+}
+
+/// A pool whose connections act as the server's own database role, as in
+/// production, so tests also prove its privileges are enough. Migrations and
+/// test fixtures keep using the owner's pool.
+pub async fn server_pool(pool: &PgPool) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(5)
+        .after_connect(|conn, _| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE ao_server").execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap()
 }
 
 async fn sign_in(app: &Router, email: &str) -> String {
