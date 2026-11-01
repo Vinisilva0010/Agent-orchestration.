@@ -238,6 +238,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/session", post(sign_in).delete(sign_out))
         .route("/api/me", get(me))
         .merge(crate::admin::routes())
+        .merge(crate::agents::routes())
         .merge(crate::runs::routes())
         .merge(crate::workspace::routes())
         .layer(middleware::from_fn_with_state(state.clone(), check_origin))

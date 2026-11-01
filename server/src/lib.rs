@@ -6,6 +6,7 @@
 
 pub mod accounts;
 mod admin;
+mod agents;
 pub mod gateway_admin;
 pub mod http;
 mod runs;
