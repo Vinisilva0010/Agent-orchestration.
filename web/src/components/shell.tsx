@@ -14,6 +14,9 @@ export const NAV: NavItem[] = [
   { href: "/", label: "Início" },
   { href: "/agentes", label: "Agentes" },
   { href: "/aprovacoes", label: "Aprovações", count: "decisions" },
+  { href: "/gastos", label: "Gastos" },
+  { href: "/pessoas", label: "Pessoas", adminOnly: true },
+  { href: "/configuracoes", label: "Configurações", adminOnly: true },
 ];
 
 const MeContext = createContext<Me | null>(null);

@@ -31,6 +31,7 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/users", get(list_users).post(create_user))
         .route("/api/users/{id}", patch(update_user))
+        .route("/api/users/{id}/agents", get(list_grants))
         .route(
             "/api/users/{id}/agents/{agent_id}",
             put(grant_agent).delete(revoke_agent),
@@ -251,6 +252,39 @@ async fn update_user(
     }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+struct Grant {
+    agent_id: String,
+    level: String,
+}
+
+/// A person's permissions on agents, for the administration page.
+async fn list_grants(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<Grant>>, ApiError> {
+    require_admin(&user)?;
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
+    if !exists {
+        return Err(ApiError::not_found());
+    }
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT agent_id, level FROM agent_permissions WHERE user_id = $1 ORDER BY agent_id",
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|(agent_id, level)| Grant { agent_id, level })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]

@@ -25,6 +25,7 @@ const waiting = (id: string, overrides: Partial<WaitingRun> = {}): WaitingRun =>
   cost_micros: 0,
   approvals: [approval],
   can_decide: true,
+  can_cancel: true,
   ...overrides,
 });
 

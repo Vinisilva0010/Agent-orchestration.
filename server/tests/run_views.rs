@@ -120,6 +120,15 @@ async fn runs_are_visible_only_to_people_who_see_the_agent(pool: PgPool) {
     let (_, body) = call(&setup.app, Method::GET, &detail, &setup.alice.cookie, None).await;
     assert_eq!(body["can_decide"], true);
     assert_eq!(body["can_cancel"], false, "cancelling needs manage");
+    let (_, waiting) = call(
+        &setup.app,
+        Method::GET,
+        "/api/runs",
+        &setup.alice.cookie,
+        None,
+    )
+    .await;
+    assert_eq!(waiting[0]["can_cancel"], false);
     assert_eq!(
         body["can_raise_budget"], false,
         "money is for administrators"
@@ -138,6 +147,10 @@ async fn runs_are_visible_only_to_people_who_see_the_agent(pool: PgPool) {
     assert_eq!(waiting[0]["id"], RUN);
     assert_eq!(waiting[0]["agent_name"], "Agent support");
     assert_eq!(waiting[0]["can_decide"], true);
+    assert_eq!(
+        waiting[0]["can_cancel"], true,
+        "alice manages the agent now"
+    );
     assert_eq!(waiting[0]["approvals"][0]["call_id"], "a1");
 
     // Archiving hides the agent's runs from everyone but administrators.

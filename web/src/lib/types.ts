@@ -94,4 +94,25 @@ export type WaitingRun = {
   cost_micros: number | null;
   approvals: Approval[];
   can_decide: boolean;
+  can_cancel: boolean;
 };
+
+export type Usage = {
+  limit_micros: number | null;
+  spent_micros: number;
+  reserved_micros: number;
+  /** "2026-11" */
+  period: string;
+};
+
+export type Person = {
+  id: number;
+  email: string;
+  display_name: string;
+  role: "admin" | "member" | "viewer";
+  disabled: boolean;
+};
+
+export type Grant = { agent_id: string; level: "use" | "manage" };
+
+export type Credential = { provider: string; key_version: number; updated_at_unix: number };

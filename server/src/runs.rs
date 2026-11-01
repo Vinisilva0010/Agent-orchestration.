@@ -132,6 +132,7 @@ struct WaitingRun {
     /// The calls that need a person's decision, described for people.
     approvals: Vec<crate::run_views::Approval>,
     can_decide: bool,
+    can_cancel: bool,
 }
 
 type WaitingRow = (
@@ -184,16 +185,18 @@ async fn list_waiting(
                     level,
                 )| {
                     let run_state: Value = serde_json::from_str(&run_state).unwrap_or(Value::Null);
-                    let may_decide = match (user.role, level.as_deref()) {
-                        ("admin", _) => true,
-                        ("viewer", _) => false,
-                        (_, Some("use" | "manage")) => true,
-                        _ => false,
+                    let (may_decide, may_cancel) = match (user.role, level.as_deref()) {
+                        ("admin", _) => (true, true),
+                        ("viewer", _) => (false, false),
+                        (_, Some("manage")) => (true, true),
+                        (_, Some("use")) => (true, false),
+                        _ => (false, false),
                     };
                     WaitingRun {
                         approvals: crate::run_views::waiting_approvals(&status, &run_state),
                         pending: run_state.get("pending").cloned().unwrap_or(Value::Null),
                         can_decide: may_decide && status == "awaiting_approval",
+                        can_cancel: may_cancel,
                         id,
                         agent_id,
                         agent_name,

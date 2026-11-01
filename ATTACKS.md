@@ -74,7 +74,7 @@ nothing returns, logs or audits it.
 | Sign-in resists guessing and does not reveal accounts | `ten_wrong_passwords_lock_the_account`, `one_address_gets_twenty_sign_in_attempts_per_window`, `a_wrong_password_and_an_unknown_account_get_the_same_answer` |
 | Sessions are strict cookies that end when they should | `sign_in_sets_a_strict_host_cookie_and_sign_out_ends_the_session`, `sessions_end_when_idle_or_when_the_account_changes`, `disabling_an_account_ends_its_sessions_at_once` |
 | Other sites cannot act for a signed-in person | `state_changes_from_other_origins_are_refused` |
-| Administrative routes need an administrator; the sandbox needs its secret | `only_administrators_manage_accounts`, `only_administrators_reach_the_gateway`, `the_service_runs_code_only_with_the_secret` |
+| Administrative routes need an administrator; the sandbox needs its secret | `only_administrators_manage_accounts`, `only_administrators_read_permissions`, `only_administrators_reach_the_gateway`, `the_service_runs_code_only_with_the_secret` |
 
 ## Tamper with records
 

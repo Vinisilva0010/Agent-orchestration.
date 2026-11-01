@@ -209,3 +209,47 @@ sudo); usei a imagem Docker oficial do Playwright 1.64.1, fixada por digest.
   (`POST /api/agents`). Não estava na lista.
 - O Dependabot abriu uma atualização do `minimatch` no web cujo CI falhou.
   Não mexi (regra: não fazer merge de PRs de terceiros).
+
+## 4.4 — Gastos, Pessoas e Configurações
+
+**O que foi feito.**
+- Menu completo: Gastos para todos; Pessoas e Configurações só aparecem
+  para administradores (e as páginas dizem "só administradores" a quem
+  chegar pelo endereço; o server recusa de qualquer forma).
+- Gastos: total da empresa no mês contra o limite (`/api/usage`, só
+  administrador), "Parado por orçamento" com campo de novo limite, "Liberar
+  e continuar" (`/api/runs/{id}/budget`) e "Cancelar a tarefa"
+  (`/api/runs/{id}/cancel`, com confirmação), e a tabela por agente com
+  "Mudar limite" (`PUT /api/agents/{id}/budget`).
+- Pessoas: criar conta, mudar papel, desativar (com confirmação) e
+  reativar, permissões por agente (Sem acesso / Pode usar / Pode usar e
+  gerenciar).
+- Configurações: mostra só se cada provedor tem chave e quando foi trocada;
+  campo de senha para cadastrar ou trocar; remover com confirmação.
+- Server: nova rota `GET /api/users/{id}/agents` (só administrador) para a
+  tela saber as permissões atuais, com teste
+  (`only_administrators_read_permissions`); `GET /api/runs` passou a dizer
+  `can_cancel`.
+
+**Decisões e por quê.**
+- *Chave de provedor:* a chave é lida do formulário só na hora do envio,
+  nunca fica no estado do React, e o campo é limpo depois, dando certo ou
+  não. A tela nunca recebe a chave de volta (o server nem tem como).
+- *Senha inicial de conta nova:* mesmo cuidado (lida do formulário, campo
+  limpo depois).
+- *Liberar orçamento:* a tela só aceita valor maior que o atual e até
+  US$ 100 por tarefa; quem não é administrador vê o aviso de que só um
+  administrador pode liberar, e pode cancelar se gerencia o agente.
+- *Desativar a própria conta:* o botão não aparece na própria linha, para
+  ninguém se trancar fora sem querer (o server já impede desativar o último
+  administrador).
+- *Nada de texto cinza claro:* tirei o placeholder do campo de valor (era
+  cinza sobre branco) e pus o exemplo no texto de ajuda.
+
+**Verificação ao vivo.** Pilha e2e (mock): tarefa criada com orçamento de 1
+micro-dólar parou em "Parado por orçamento"; as três telas abriram com dados
+reais e sem erros de console.
+
+**Pendências.** Não testei salvar uma chave de verdade (nem falsa) na tela
+ao vivo; o caminho da chave já é coberto pelos testes do server
+(`keys_go_to_the_gateway_with_the_admin_secret_and_never_come_back`).

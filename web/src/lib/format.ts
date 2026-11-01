@@ -187,3 +187,38 @@ export const TASK_MAX_CHARS = 8000;
 export function taskLength(text: string): number {
   return Array.from(text.trim()).length;
 }
+
+const MONTHS = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+/** "2026-11" as "novembro de 2026". */
+export function formatPeriod(period: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(period);
+  const month = match ? Number(match[2]) : 0;
+  return match && month >= 1 && month <= 12 ? `${MONTHS[month - 1]} de ${match[1]}` : period;
+}
+
+export const LEVEL_LABELS = { use: "Pode usar", manage: "Pode usar e gerenciar" } as const;
+
+/**
+ * Checks a new task budget typed by an administrator: a valid amount, above
+ * the current budget, and at most US$ 100 (the server's limit for a task).
+ */
+export function checkNewTaskBudget(text: string, currentMicros: number): { micros: number } | { error: string } {
+  const micros = parseMoney(text);
+  if (micros === null) {
+    return { error: "Digite um valor em dólares, por exemplo 5,00." };
+  }
+  if (micros <= currentMicros) {
+    return { error: `O novo limite precisa ser maior que ${formatMoney(currentMicros)}.` };
+  }
+  if (micros > 100_000_000) {
+    return { error: `O limite de uma tarefa é no máximo ${formatMoney(100_000_000)}.` };
+  }
+  return { micros };
+}
+
+export const PASSWORD_MIN = 15;
+export const PASSWORD_MAX = 128;

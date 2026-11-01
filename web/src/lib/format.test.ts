@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   agentStatus,
+  checkNewTaskBudget,
+  formatPeriod,
   countDecisions,
   formatMoney,
   formatTime,
@@ -106,6 +108,7 @@ describe("countDecisions", () => {
     cost_micros: 0,
     approvals: [],
     can_decide: true,
+    can_cancel: true,
     ...overrides,
   });
 
@@ -135,5 +138,23 @@ describe("text helpers", () => {
       "Arquiva um relatório. Isto não pode ser desfeito.",
     );
     expect(toolDescription("custom_tool", "Does things.")).toBe("Does things.");
+  });
+});
+
+describe("formatPeriod", () => {
+  it("names the month in Portuguese", () => {
+    expect(formatPeriod("2026-11")).toBe("novembro de 2026");
+    expect(formatPeriod("2026-03")).toBe("março de 2026");
+    expect(formatPeriod("2026-13")).toBe("2026-13");
+  });
+});
+
+describe("checkNewTaskBudget", () => {
+  it("accepts only a higher amount within the task maximum", () => {
+    expect(checkNewTaskBudget("5,00", 2_000_000)).toEqual({ micros: 5_000_000 });
+    expect(checkNewTaskBudget("2", 2_000_000)).toHaveProperty("error");
+    expect(checkNewTaskBudget("abc", 2_000_000)).toHaveProperty("error");
+    expect(checkNewTaskBudget("100,01", 2_000_000)).toHaveProperty("error");
+    expect(checkNewTaskBudget("100", 2_000_000)).toEqual({ micros: 100_000_000 });
   });
 });
