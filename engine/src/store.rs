@@ -292,3 +292,93 @@ impl RunStore {
         })
     }
 }
+
+/// A person's request to start a task, after a worker claimed it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClaimedTask {
+    /// The run was created and the request points at it. The run has not
+    /// been driven yet.
+    Started {
+        task_start_id: i64,
+        run: Box<StoredRun>,
+    },
+    /// The request was closed without a run.
+    Refused { task_start_id: i64, reason: String },
+}
+
+pub const AGENT_ARCHIVED: &str = "failed: the agent is archived";
+
+impl RunStore {
+    /// Claims the oldest waiting task request. In one transaction it locks
+    /// the request (skipping ones other workers hold), creates the run with
+    /// the agent's tier and the request's budget, and marks the request
+    /// processed with the run's id. A request is therefore started at most
+    /// once, and a run never exists without its request pointing at it.
+    pub async fn claim_task_start(&self) -> Result<Option<ClaimedTask>, StoreError> {
+        let mut tx = self.pool.begin().await.map_err(db_error)?;
+        let row: Option<(i64, String, String, i64, String, bool)> = sqlx::query_as(
+            "SELECT t.id, t.agent_id, t.task, t.budget_micros, a.tier, a.archived_at IS NOT NULL \
+             FROM task_starts t JOIN agents a ON a.id = t.agent_id \
+             WHERE t.processed_at IS NULL \
+             ORDER BY t.id LIMIT 1 FOR UPDATE OF t SKIP LOCKED",
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db_error)?;
+        let Some((task_start_id, agent_id, task, budget, tier, archived)) = row else {
+            return Ok(None);
+        };
+        if archived {
+            sqlx::query("UPDATE task_starts SET processed_at = now(), outcome = $2 WHERE id = $1")
+                .bind(task_start_id)
+                .bind(AGENT_ARCHIVED)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            tx.commit().await.map_err(db_error)?;
+            return Ok(Some(ClaimedTask::Refused {
+                task_start_id,
+                reason: AGENT_ARCHIVED.to_string(),
+            }));
+        }
+        let tier = tier_from(&tier)?;
+        let budget_micros = u64::try_from(budget).map_err(|_| StoreError::Invalid("budget"))?;
+        let state = RunState::new(&task);
+        let id = new_run_id()?;
+        let json = serde_json::to_string(&state).map_err(|_| StoreError::Invalid("state"))?;
+        sqlx::query(
+            "INSERT INTO engine_runs (id, agent_id, tier, budget_micros, status, state) \
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
+        )
+        .bind(&id)
+        .bind(&agent_id)
+        .bind(tier.as_str())
+        .bind(budget)
+        .bind(state.status.as_str())
+        .bind(json)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
+        sqlx::query(
+            "UPDATE task_starts SET processed_at = now(), run_id = $2, outcome = 'started' \
+             WHERE id = $1",
+        )
+        .bind(task_start_id)
+        .bind(&id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_error)?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(Some(ClaimedTask::Started {
+            task_start_id,
+            run: Box::new(StoredRun {
+                id,
+                agent_id,
+                tier,
+                budget_micros,
+                version: 1,
+                state,
+            }),
+        }))
+    }
+}

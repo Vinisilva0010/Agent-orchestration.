@@ -10,6 +10,7 @@ mod agents;
 pub mod gateway_admin;
 pub mod http;
 mod runs;
+mod tasks;
 mod workspace;
 
 use secrecy::{ExposeSecret, SecretString};

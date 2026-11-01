@@ -25,3 +25,61 @@ agentes, mudar gastos ou limites, mudar runs, ler chaves ou tokens, nem apagar
 auditoria. Também confere que `ao_engine` só lê `agents`.
 
 **Riscos.** Nenhum novo.
+
+## 4.2b — Começar tarefa pela tela
+
+**O que foi feito.**
+- Migração `20261101000001_task_starts.sql`: tabela `task_starts` com texto
+  da tarefa (1 a 8000 caracteres), orçamento (1 a 100.000.000 micros), quem
+  pediu, horários, `run_id` e resultado. Índices para pendentes (geral e por
+  pessoa), por agente, um pedido por run, e um índice de runs por agente
+  (para a 4.2c).
+- Rota `POST /api/agents/{id}/tasks` em `server/src/tasks.rs`.
+- No engine: `RunStore::claim_task_start` e o worker passou a processar
+  pedidos de tarefa depois dos pedidos sobre runs (decisões, orçamento,
+  cancelamento), que são mais urgentes porque alguém está esperando.
+- Testes: `server/tests/tasks.rs` (5), `engine/tests/task_starts.rs` (3) e
+  novas linhas no teste de papéis.
+
+**Decisões e por quê.**
+- *Quem pode começar tarefa:* administrador, ou quem tem permissão `use` ou
+  `manage` no agente. Visualizador nunca (403, porque ele enxerga o agente);
+  quem não tem permissão recebe 404, como na lista de agentes, para não
+  revelar que o agente existe. Agente arquivado recusa com 409.
+- *Orçamento:* o padrão é o `task_budget_micros` do agente. Só administrador
+  pode pedir um orçamento acima desse padrão (dinheiro é decisão de
+  administrador, como já era em `/api/runs/{id}/budget`); membros podem pedir
+  menos.
+- *Limite de pendentes:* 5 pedidos ainda não iniciados por pessoa. Para dois
+  pedidos simultâneos não passarem juntos do limite, a contagem e a inserção
+  ficam sob um `pg_advisory_xact_lock` por pessoa (testado com 8 pedidos ao
+  mesmo tempo: 5 aceitos, 3 recusados).
+- *Privilégio mínimo:* `ao_server` só pode inserir as colunas do pedido
+  (não consegue marcar um pedido como processado nem apontar para uma run) e
+  ler; `ao_engine` só lê e atualiza `processed_at`, `run_id` e `outcome`.
+  Nenhum dos dois apaga.
+- *Processado uma vez só:* o worker trava o pedido com
+  `FOR UPDATE SKIP LOCKED`, cria a run com o tier do agente e grava o
+  `run_id` no pedido na mesma transação; só depois do commit roda o agente.
+  Além disso, um gatilho no banco impede mudar um pedido já processado (nem o
+  dono do banco consegue reabrir). Testado com 12 workers disputando 6
+  pedidos: cada pedido virou exatamente uma run.
+- *Auditoria:* `task.requested` (com quem pediu como ator), `task.started` e
+  `task.failed`. O texto da tarefa NÃO vai para a auditoria, porque ela nunca
+  pode ser apagada e alguém pode colar um dado sensível; vão o SHA-256 e o
+  tamanho do texto, que bastam para provar qual texto foi pedido.
+- *Se o token de tarefa não sair* (gateway fora do ar), a run é marcada
+  `failed` com o erro, em vez de ficar parada como `running`.
+
+**Pendências e riscos.**
+- A permissão é checada quando o pedido é gravado, não de novo quando o
+  worker começa (o engine não tem acesso às tabelas de contas, de propósito).
+  Se a permissão for retirada nos segundos em que o pedido espera na fila, a
+  tarefa ainda começa. Registrado no THREAT_MODEL.md.
+- Se o worker cair depois de criar a run e antes de rodar o agente, a run
+  fica `running` sem ninguém tocando. É o mesmo risco já aceito para os
+  pedidos sobre runs; precisa de um "recuperador" no futuro.
+- Todos os agentes ainda usam o mesmo conjunto de ferramentas de
+  demonstração do engine (`get_time`, `archive_report` e `run_python` quando
+  o sandbox está configurado). Ferramentas por agente não fazem parte desta
+  fase.

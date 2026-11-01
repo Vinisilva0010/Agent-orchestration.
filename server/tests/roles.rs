@@ -68,6 +68,19 @@ const ALLOWED: &[(&str, &str)] = &[
     ("ao_server", "SELECT count(*) FROM monthly_spend"),
     ("ao_server", "SELECT count(*) FROM agent_budgets"),
     ("ao_server", "SELECT count(*) FROM engine_runs"),
+    (
+        "ao_server",
+        "INSERT INTO task_starts (agent_id, task, budget_micros, requested_by) SELECT 'a', 't', 1, 1 WHERE false",
+    ),
+    ("ao_server", "SELECT count(*) FROM task_starts"),
+    (
+        "ao_engine",
+        "SELECT id FROM task_starts WHERE false FOR UPDATE SKIP LOCKED",
+    ),
+    (
+        "ao_engine",
+        "UPDATE task_starts SET processed_at = now(), run_id = NULL, outcome = 'x' WHERE false",
+    ),
 ];
 
 const DENIED: &[(&str, &str)] = &[
@@ -120,6 +133,29 @@ const DENIED: &[(&str, &str)] = &[
     ("ao_server", "SELECT count(*) FROM provider_credentials"),
     ("ao_server", "SELECT count(*) FROM task_tokens"),
     ("ao_server", "DELETE FROM audit_events WHERE false"),
+    (
+        "ao_server",
+        "INSERT INTO task_starts (agent_id, task, budget_micros, requested_by, run_id) SELECT 'a', 't', 1, 1, NULL WHERE false",
+    ),
+    (
+        "ao_server",
+        "INSERT INTO task_starts (agent_id, task, budget_micros, requested_by, processed_at, outcome) SELECT 'a', 't', 1, 1, now(), 'x' WHERE false",
+    ),
+    (
+        "ao_server",
+        "UPDATE task_starts SET processed_at = now() WHERE false",
+    ),
+    ("ao_server", "DELETE FROM task_starts WHERE false"),
+    ("ao_engine", "UPDATE task_starts SET task = 'x' WHERE false"),
+    (
+        "ao_engine",
+        "UPDATE task_starts SET budget_micros = 1 WHERE false",
+    ),
+    (
+        "ao_engine",
+        "INSERT INTO task_starts (agent_id, task, budget_micros, requested_by) SELECT 'a', 't', 1, 1 WHERE false",
+    ),
+    ("ao_engine", "DELETE FROM task_starts WHERE false"),
 ];
 
 async fn try_as(pool: &PgPool, role: &str, sql: &'static str) -> Result<(), String> {

@@ -3,8 +3,9 @@
 //!   engine run [--tier small|standard|large] [--budget-micros N] [--detach] "task"
 //!   engine decide RUN_ID approve|reject
 //!   engine worker [--once]
-//!     Carries out people's requests recorded by the server; --once stops
-//!     when none is left.
+//!     Carries out people's requests recorded by the server (decisions,
+//!     budget raises, cancellations, then new tasks); --once stops when none
+//!     is left.
 //!
 //! SANDBOX_URL and SANDBOX_SECRET, when both are set, give agents the run_python
 //! tool.
@@ -30,7 +31,7 @@ use engine::{
     runner::Runner,
     sandbox::{SandboxClient, run_python_tool},
     secrets_guard,
-    store::{RunRequest, RunStore, StoredRun, connect},
+    store::{ClaimedTask, RunRequest, RunStore, StoredRun, connect},
     tools::{Tool, ToolRegistry, TypedTool},
 };
 use protocol::ModelTier;
@@ -349,8 +350,24 @@ async fn command_worker(settings: &Settings, store: &RunStore, args: &[String]) 
                     json!({ "event": "request", "id": request.id, "run_id": request.run_id, "kind": request.kind, "outcome": outcome })
                 );
             }
-            Ok(None) if once => return 0,
-            Ok(None) => tokio::time::sleep(Duration::from_secs(2)).await,
+            Ok(None) => {
+                let claimed = tokio::select! {
+                    _ = tokio::signal::ctrl_c() => return 0,
+                    claimed = store.claim_task_start() => claimed,
+                };
+                match claimed {
+                    Ok(Some(task)) => start_task(settings, store, task).await,
+                    Ok(None) if once => return 0,
+                    Ok(None) => tokio::time::sleep(Duration::from_secs(2)).await,
+                    Err(error) => {
+                        eprintln!("could not read task requests: {error}");
+                        if once {
+                            return 3;
+                        }
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                }
+            }
             Err(error) => {
                 eprintln!("could not read requests: {error}");
                 if once {
@@ -360,6 +377,43 @@ async fn command_worker(settings: &Settings, store: &RunStore, args: &[String]) 
             }
         }
     }
+}
+
+/// Runs a task whose run the store just created. If the agent cannot be
+/// built (no task token), the run is marked failed instead of left running.
+async fn start_task(settings: &Settings, store: &RunStore, task: ClaimedTask) {
+    let (task_start_id, run) = match task {
+        ClaimedTask::Refused {
+            task_start_id,
+            reason,
+        } => {
+            println!(
+                "{}",
+                json!({ "event": "task", "task_start_id": task_start_id, "outcome": reason })
+            );
+            return;
+        }
+        ClaimedTask::Started { task_start_id, run } => (task_start_id, *run),
+    };
+    let outcome = match build_agent(settings, &run).await {
+        Ok(agent) => match Runner::new(&agent, store).drive(run.clone()).await {
+            Ok(run) => run.state.status.as_str().to_string(),
+            Err(error) => format!("failed: {error}"),
+        },
+        Err(error) => {
+            let mut state = run.state.clone();
+            state.status = RunStatus::Failed;
+            state.error = Some(error.clone());
+            if let Err(save_error) = store.save(run.clone(), state).await {
+                eprintln!("could not mark run {} failed: {save_error}", run.id);
+            }
+            format!("failed: {error}")
+        }
+    };
+    println!(
+        "{}",
+        json!({ "event": "task", "task_start_id": task_start_id, "run_id": run.id, "outcome": outcome })
+    );
 }
 
 /// Carries out one request. Requests for runs that are no longer waiting are

@@ -100,6 +100,12 @@ Rules:
   started and the run possibly still running; nothing resumes it yet. Runs
   are never repeated unsafely (irreversible calls stay at most once), but a
   person must check them.
+- A task request is checked against the person's permission when it is
+  recorded, not again when the worker starts it, so a permission revoked in
+  the time between the two (the time the request waits in the queue,
+  seconds while a worker runs) does not stop that task. The engine role
+  cannot read accounts or permissions, so it cannot check again. A worker that stops after creating a run but before
+  driving it leaves the run `running`, as for requests above.
 - A provider key passing through the server is zeroized in the server's own
   value, but the HTTP request body built for the gateway is a copy that is
   freed without being zeroized.
@@ -173,6 +179,16 @@ Rules:
   its own role; the server cannot change runs or reach the gateway. The
   database allows one waiting request per run, each request is claimed by one
   worker, and requests for runs that moved on are skipped.
+- Tasks start only through requests: the server checks that the person may
+  use the agent (administrators, or a use/manage permission; viewers never;
+  archived agents take no tasks), that the task is 1 to 8000 characters and
+  that only administrators go above the agent's task budget, and allows five
+  waiting requests per person (serialized per person). The server may insert
+  only the request columns. The worker claims a request with
+  `FOR UPDATE SKIP LOCKED`, creates the run with the agent's tier and notes
+  the run's id in the same transaction, and only then runs the agent; a
+  processed request can never be changed again (trigger). The audit log keeps
+  the task's SHA-256 and length, not its text.
 - The gateway has two secrets: the issuer secret (engine only) issues and
   revokes task tokens; the admin secret (server only) stores, replaces and
   deletes provider keys (never reads them), sets agent limits and reads usage.

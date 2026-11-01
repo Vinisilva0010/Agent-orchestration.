@@ -31,6 +31,7 @@ nothing returns, logs or audits it.
 | The highest possible cost is reserved before every call, under parallel load | `parallel_reservations_never_exceed_the_task_budget`, `call_that_cannot_fit_the_task_budget_is_rejected`, `task_stops_when_its_budget_runs_out` |
 | Agent and workspace monthly limits | `agent_monthly_budget_is_enforced`, `agent_monthly_limit_applies_across_tasks`, `workspace_limit_applies_across_tasks` |
 | Tokens cannot mint tokens; the admin secret cannot spend | `task_token_cannot_issue_more_tokens`, `each_secret_opens_only_its_own_routes` |
+| One person cannot flood the queue or give a task more than the agent's budget | `pending_task_requests_are_limited_per_person`, `task_text_and_budget_are_validated` |
 | A refused reservation pauses the run for a person; only administrators raise budgets | `pauses_when_the_budget_is_spent`, `budget_is_for_administrators_and_cancelling_needs_manage` |
 | No costlier model without explicit permission | `never_moves_up_without_permission`, `stops_moving_up_at_the_configured_limit` |
 | Sandbox code cannot exhaust the host | `a_fork_bomb_hits_the_process_limit`, `a_memory_bomb_is_stopped`, `an_endless_loop_is_stopped_and_its_container_removed`, `output_is_capped_without_blocking_the_program` |
@@ -60,6 +61,8 @@ nothing returns, logs or audits it.
 | An approved action runs at most once, even after a crash or a race | `an_action_started_before_a_crash_never_runs_again`, `concurrent_decisions_run_the_tool_once` |
 | Tools outside the run's set cannot be called | `tools_outside_the_subset_cannot_be_called` |
 | Only people allowed on the agent decide, once per request | `only_people_allowed_on_the_agent_decide_once_and_each_request_is_claimed_once` |
+| Only people allowed on the agent start tasks; viewers and archived agents never | `only_people_allowed_on_the_agent_start_tasks` |
+| A task request starts one run, even with racing workers, and never reopens | `each_task_request_starts_exactly_one_run`, `task_requests_are_audited_without_their_text` |
 
 ## Impersonate someone or steal a session
 
