@@ -240,6 +240,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::admin::routes())
         .merge(crate::agents::routes())
         .merge(crate::runs::routes())
+        .merge(crate::run_views::routes())
         .merge(crate::tasks::routes())
         .merge(crate::workspace::routes())
         .layer(middleware::from_fn_with_state(state.clone(), check_origin))

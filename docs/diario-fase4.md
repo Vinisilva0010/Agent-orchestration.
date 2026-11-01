@@ -83,3 +83,56 @@ auditoria. Também confere que `ao_engine` só lê `agents`.
   demonstração do engine (`get_time`, `archive_report` e `run_python` quando
   o sandbox está configurado). Ferramentas por agente não fazem parte desta
   fase.
+
+## 4.2c — Acompanhar tarefas
+
+**O que foi feito.**
+- `GET /api/agents/{id}/runs`: pedidos ainda na fila (status `queued`)
+  primeiro, depois as últimas 50 runs do agente, da mais nova para a mais
+  antiga, com quem pediu, status, gasto, orçamento, horários (UTC, formato
+  RFC 3339) e o começo do texto da tarefa (300 caracteres).
+- `GET /api/runs/{id}`: conversa, atividade, ações esperando aprovação,
+  gasto, orçamento, status, resultado final, erro e o que a pessoa pode fazer
+  (`can_decide`, `can_cancel`, `can_raise_budget`).
+- `GET /api/runs` (lista do que espera decisão) agora também traz nome do
+  agente, tarefa, `approvals` já descritas e `can_decide`.
+- No engine: o estado da run guarda `approvals`, o histórico de cada chamada
+  que esperou uma pessoa (ferramenta, descrição da ferramenta, se é
+  irreversível e a decisão).
+- Testes: `server/tests/run_views.rs` (4), 3 testes de unidade em
+  `server/src/run_views.rs` e 1 novo em `engine/tests/agent.rs`.
+
+**Decisões e por quê.**
+- *Como saber se a ação é irreversível:* só o engine conhece as
+  ferramentas. Em vez de o server adivinhar pelo nome, o engine grava no
+  estado da run, no momento em que para para pedir aprovação, a descrição e
+  a marca de irreversível da própria ferramenta. Assim "O que vai acontecer"
+  vem de texto escrito pelos desenvolvedores, nunca pelo modelo (o modelo
+  poderia escrever "isto é inofensivo"). O texto do modelo aparece separado,
+  como "Por que o agente pediu". Runs antigas, sem esse histórico, mostram
+  toda ação pendente como irreversível (o lado seguro).
+- *Conversa:* só o texto das mensagens; chamadas de ferramenta aparecem pelo
+  nome. O raciocínio interno do modelo (blocos `reasoning`) nunca é
+  devolvido. Resultados de ferramentas ficam na atividade, cortados em 2000
+  caracteres.
+- *Atividade:* cada chamada de ferramenta com o resultado: feita, erro,
+  recusada, esperando, começada sem resultado conhecido, ou não executada.
+  As ações irreversíveis trazem os horários de `engine_tool_executions`.
+  A recusa é reconhecida pelo histórico de decisões, não pelo texto do
+  resultado.
+- *Visibilidade:* a mesma regra da lista de agentes. Quem não pode ver o
+  agente recebe 404 (não 403), para não revelar que a run existe. Agente
+  arquivado: só administradores veem as runs. Administradores também veem
+  runs de agentes que não estão cadastrados (criadas pela linha de comando do
+  engine). A lista `GET /api/runs` passou a seguir essa mesma regra (antes
+  mostrava runs de agentes arquivados ou não cadastrados para quem tinha
+  permissão); o teste antigo de runs ganhou o cadastro do agente `support`.
+- *Dependências:* o server ganhou `protocol` e `schemars` só como
+  dependências de teste; as duas já estavam no workspace (nenhuma versão
+  nova no Cargo.lock).
+
+**Pendências e riscos.**
+- As rotas de ação (`/decision`, `/cancel`) continuam respondendo 403 (não
+  404) para quem não tem permissão, como antes. Os ids de run são aleatórios
+  de 128 bits, então isso não permite descobrir runs; mantive para não mudar
+  o comportamento já testado.

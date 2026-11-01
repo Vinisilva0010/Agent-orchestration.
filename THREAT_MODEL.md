@@ -189,6 +189,14 @@ Rules:
   the run's id in the same transaction, and only then runs the agent; a
   processed request can never be changed again (trigger). The audit log keeps
   the task's SHA-256 and length, not its text.
+- Following runs: an agent's runs and waiting actions are shown only to
+  people who may see the agent (others get "not found"; archived agents only
+  to administrators). The engine keeps, in the run's state, every call that
+  waited for a person with its tool's own description (written by
+  developers, not the model), whether it is irreversible and the decision;
+  runs saved before this treat every waiting call as irreversible. Model
+  reasoning is never returned, and model and tool text is returned as plain
+  strings for the page to render as text.
 - The gateway has two secrets: the issuer secret (engine only) issues and
   revokes task tokens; the admin secret (server only) stores, replaces and
   deletes provider keys (never reads them), sets agent limits and reads usage.

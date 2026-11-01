@@ -7,7 +7,9 @@ use std::{
 };
 
 use engine::{
-    agent::{Agent, AgentConfig, Decision, EngineError, REJECTED_RESULT, RunStatus},
+    agent::{
+        Agent, AgentConfig, ApprovalRecord, Decision, EngineError, REJECTED_RESULT, RunStatus,
+    },
     gateway::GatewayClient,
     tools::{Tool, ToolRegistry, TypedTool},
 };
@@ -185,6 +187,42 @@ async fn irreversible_tool_waits_for_approval() {
     let done = agent.decide(paused, &Decision::ApproveAll).await.unwrap();
     assert_eq!(done.status, RunStatus::Completed);
     assert_eq!(counts.archive.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn waiting_calls_are_recorded_with_the_tools_own_description_and_the_decision() {
+    let calls = json!([
+        { "type": "text", "text": "I will archive it." },
+        tool_use("archive_report", json!({ "report_id": "q3" })),
+        { "type": "tool_use", "id": "call_2", "name": "get_time", "input": {} },
+    ]);
+    for (decision, approved) in [(Decision::ApproveAll, true), (Decision::RejectAll, false)] {
+        let server = gateway(vec![
+            reply(calls.clone(), "tool_use"),
+            reply(json!([{ "type": "text", "text": "ok" }]), "end_turn"),
+        ])
+        .await;
+        let counts = Counts::default();
+        let agent = agent(&server, &counts, AgentConfig::default());
+        let paused = agent.drive(agent.start("archive q3")).await;
+        assert_eq!(paused.status, RunStatus::AwaitingApproval);
+        // Only the irreversible call waits; the description is the tool's,
+        // not the model's text.
+        assert_eq!(
+            paused.approvals,
+            vec![ApprovalRecord {
+                call_id: "call_1".to_string(),
+                tool: "archive_report".to_string(),
+                description: "Archives a report.".to_string(),
+                irreversible: true,
+                approved: None,
+            }]
+        );
+        let done = agent.decide(paused, &decision).await.unwrap();
+        assert_eq!(done.status, RunStatus::Completed);
+        assert_eq!(done.approvals.len(), 1);
+        assert_eq!(done.approvals[0].approved, Some(approved));
+    }
 }
 
 #[tokio::test]

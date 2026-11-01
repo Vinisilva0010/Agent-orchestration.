@@ -122,23 +122,47 @@ async fn record_request(
 struct WaitingRun {
     id: String,
     agent_id: String,
+    agent_name: Option<String>,
     status: String,
+    task: String,
     budget_micros: i64,
     cost_micros: Option<i64>,
+    /// Every call the run waits on, as the engine saved it.
     pending: Value,
+    /// The calls that need a person's decision, described for people.
+    approvals: Vec<crate::run_views::Approval>,
+    can_decide: bool,
 }
 
+type WaitingRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    i64,
+    Option<i64>,
+    String,
+    Option<String>,
+);
+
+/// Runs waiting for a person, with the same visibility as agents: others
+/// than administrators see runs of agents they hold a permission on, while
+/// the agent is not archived.
 async fn list_waiting(
     State(state): State<AppState>,
     user: CurrentUser,
 ) -> Result<Json<Vec<WaitingRun>>, ApiError> {
-    let rows: Vec<(String, String, String, i64, Option<i64>, String)> = sqlx::query_as(
-        "SELECT r.id, r.agent_id, r.status, r.budget_micros, (r.state->>'cost_micros')::bigint, \
-                coalesce(r.state->'pending', '[]'::jsonb)::text \
+    let rows: Vec<WaitingRow> = sqlx::query_as(
+        "SELECT r.id, r.agent_id, a.display_name, r.status, \
+                left(coalesce(t.task, r.state #>> '{messages,0,content,0,text}', ''), 300), \
+                r.budget_micros, (r.state->>'cost_micros')::bigint, r.state::text, p.level \
          FROM engine_runs r \
+         LEFT JOIN agents a ON a.id = r.agent_id \
+         LEFT JOIN task_starts t ON t.run_id = r.id \
+         LEFT JOIN agent_permissions p ON p.agent_id = r.agent_id AND p.user_id = $2 \
          WHERE r.status IN ('awaiting_approval', 'awaiting_budget') \
-           AND ($1 OR EXISTS (SELECT 1 FROM agent_permissions p \
-                              WHERE p.user_id = $2 AND p.agent_id = r.agent_id)) \
+           AND ($1 OR (p.user_id IS NOT NULL AND a.id IS NOT NULL AND a.archived_at IS NULL)) \
          ORDER BY r.updated_at",
     )
     .bind(user.role == "admin")
@@ -148,13 +172,36 @@ async fn list_waiting(
     Ok(Json(
         rows.into_iter()
             .map(
-                |(id, agent_id, status, budget_micros, cost_micros, pending)| WaitingRun {
+                |(
                     id,
                     agent_id,
+                    agent_name,
                     status,
+                    task,
                     budget_micros,
                     cost_micros,
-                    pending: serde_json::from_str(&pending).unwrap_or(Value::Null),
+                    run_state,
+                    level,
+                )| {
+                    let run_state: Value = serde_json::from_str(&run_state).unwrap_or(Value::Null);
+                    let may_decide = match (user.role, level.as_deref()) {
+                        ("admin", _) => true,
+                        ("viewer", _) => false,
+                        (_, Some("use" | "manage")) => true,
+                        _ => false,
+                    };
+                    WaitingRun {
+                        approvals: crate::run_views::waiting_approvals(&status, &run_state),
+                        pending: run_state.get("pending").cloned().unwrap_or(Value::Null),
+                        can_decide: may_decide && status == "awaiting_approval",
+                        id,
+                        agent_id,
+                        agent_name,
+                        status,
+                        task,
+                        budget_micros,
+                        cost_micros,
+                    }
                 },
             )
             .collect(),

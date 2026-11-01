@@ -65,6 +65,18 @@ async fn setup(pool: &PgPool) -> Setup {
     )
     .await
     .unwrap();
+    let admin_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE role = 'admin'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO agents (id, display_name, task_budget_micros, created_by) \
+         VALUES ('support', 'Suporte', 100, $1)",
+    )
+    .bind(admin_id)
+    .execute(pool)
+    .await
+    .unwrap();
     for user_id in [alice_id, vera_id] {
         sqlx::query("INSERT INTO agent_permissions (user_id, agent_id, level) VALUES ($1, 'support', 'use')")
             .bind(user_id)

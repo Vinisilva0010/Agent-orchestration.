@@ -9,6 +9,7 @@ mod admin;
 mod agents;
 pub mod gateway_admin;
 pub mod http;
+mod run_views;
 mod runs;
 mod tasks;
 mod workspace;

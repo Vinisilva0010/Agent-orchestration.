@@ -61,6 +61,8 @@ nothing returns, logs or audits it.
 | An approved action runs at most once, even after a crash or a race | `an_action_started_before_a_crash_never_runs_again`, `concurrent_decisions_run_the_tool_once` |
 | Tools outside the run's set cannot be called | `tools_outside_the_subset_cannot_be_called` |
 | Only people allowed on the agent decide, once per request | `only_people_allowed_on_the_agent_decide_once_and_each_request_is_claimed_once` |
+| People see an agent's runs only if they may see the agent; viewers never act | `runs_are_visible_only_to_people_who_see_the_agent` |
+| Approval cards describe the action with the tool's own description and flag irreversible actions, whatever the model writes | `waiting_calls_are_recorded_with_the_tools_own_description_and_the_decision`, `actions_held_by_the_engine_are_shown_as_irreversible`, `a_run_shows_its_conversation_activity_and_waiting_actions` |
 | Only people allowed on the agent start tasks; viewers and archived agents never | `only_people_allowed_on_the_agent_start_tasks` |
 | A task request starts one run, even with racing workers, and never reopens | `each_task_request_starts_exactly_one_run`, `task_requests_are_audited_without_their_text` |
 

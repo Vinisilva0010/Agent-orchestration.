@@ -492,6 +492,13 @@ async fn apply_request(
             state.status = RunStatus::Failed;
             state.error = Some(format!("cancelled by a person (request {})", request.id));
             state.pending.clear();
+            for record in state
+                .approvals
+                .iter_mut()
+                .filter(|record| record.approved.is_none())
+            {
+                record.approved = Some(false);
+            }
             let run = store
                 .save(run, state)
                 .await

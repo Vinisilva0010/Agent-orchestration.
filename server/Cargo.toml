@@ -31,4 +31,6 @@ zeroize.workspace = true
 [dev-dependencies]
 wiremock.workspace = true
 engine.workspace = true
+protocol.workspace = true
+schemars.workspace = true
 tower.workspace = true

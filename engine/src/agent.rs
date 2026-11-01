@@ -106,6 +106,21 @@ pub struct ToolCall {
     pub input: Value,
 }
 
+/// A call that needed a person's decision. Kept for the rest of the run, so
+/// people can see what was asked and what was answered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalRecord {
+    pub call_id: String,
+    pub tool: String,
+    /// The tool's own description, written by its developers, never by the
+    /// model.
+    pub description: String,
+    pub irreversible: bool,
+    /// `None` while waiting; then whether a person approved it.
+    #[serde(default)]
+    pub approved: Option<bool>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunState {
     pub messages: Vec<Message>,
@@ -135,6 +150,9 @@ pub struct RunState {
     /// Set once less than a fifth of the task budget is left.
     #[serde(default)]
     pub low_budget: bool,
+    /// Every call that waited for a person in this run, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approvals: Vec<ApprovalRecord>,
 }
 
 impl RunState {
@@ -160,6 +178,7 @@ impl RunState {
             tier_changed_at: None,
             invalid_tool_steps: 0,
             low_budget: false,
+            approvals: Vec::new(),
         }
     }
 }
@@ -309,6 +328,29 @@ impl Agent {
             .collect()
     }
 
+    /// Records the calls the run now waits on, with their tool's description.
+    fn record_approvals(&self, state: &mut RunState) {
+        for call in self.approval_actions(state) {
+            let already = state
+                .approvals
+                .iter()
+                .any(|record| record.call_id == call.id && record.approved.is_none());
+            if already {
+                continue;
+            }
+            let Ok(tool) = self.registry.validate(&call.name, &call.input) else {
+                continue;
+            };
+            state.approvals.push(ApprovalRecord {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                description: tool.description().to_string(),
+                irreversible: tool.irreversible(),
+                approved: None,
+            });
+        }
+    }
+
     /// Advances the run by one step. Finished or waiting runs are returned as is.
     pub async fn step_with<G: ExecutionGuard>(&self, mut state: RunState, guard: &G) -> RunState {
         if state.status != RunStatus::Running {
@@ -316,6 +358,7 @@ impl Agent {
         }
         if !state.pending.is_empty() {
             if state.approved.is_none() && !self.approval_actions(&state).is_empty() {
+                self.record_approvals(&mut state);
                 state.status = RunStatus::AwaitingApproval;
                 return state;
             }
@@ -354,12 +397,19 @@ impl Agent {
         if state.status != RunStatus::AwaitingApproval {
             return Err(EngineError::NotAwaitingApproval);
         }
-        let approved = self
+        let approved: Vec<String> = self
             .approval_actions(&state)
             .into_iter()
             .filter(|call| decision.approves(&call.id))
             .map(|call| call.id)
             .collect();
+        for record in state
+            .approvals
+            .iter_mut()
+            .filter(|record| record.approved.is_none())
+        {
+            record.approved = Some(approved.contains(&record.call_id));
+        }
         state.approved = Some(approved);
         state.status = RunStatus::Running;
         Ok(state)
