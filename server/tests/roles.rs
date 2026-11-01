@@ -59,6 +59,15 @@ const ALLOWED: &[(&str, &str)] = &[
         "UPDATE engine_tool_executions SET state = 'finished' WHERE false",
     ),
     ("ao_engine", "SELECT count(*) FROM engine_tool_executions"),
+    ("ao_engine", "SELECT count(*) FROM agents"),
+    ("ao_server", "SELECT count(*) FROM agents"),
+    (
+        "ao_server",
+        "UPDATE agents SET display_name = display_name, archived_at = now() WHERE false",
+    ),
+    ("ao_server", "SELECT count(*) FROM monthly_spend"),
+    ("ao_server", "SELECT count(*) FROM agent_budgets"),
+    ("ao_server", "SELECT count(*) FROM engine_runs"),
 ];
 
 const DENIED: &[(&str, &str)] = &[
@@ -89,12 +98,35 @@ const DENIED: &[(&str, &str)] = &[
         "ao_engine",
         "SELECT audit_append('run.created', 'x', '{}'::jsonb)",
     ),
+    ("ao_engine", "UPDATE agents SET tier = 'large' WHERE false"),
+    ("ao_server", "UPDATE agents SET id = id WHERE false"),
+    (
+        "ao_server",
+        "UPDATE agents SET created_by = created_by WHERE false",
+    ),
+    ("ao_server", "DELETE FROM agents WHERE false"),
+    (
+        "ao_server",
+        "UPDATE monthly_spend SET spent_micros = 0 WHERE false",
+    ),
+    (
+        "ao_server",
+        "UPDATE agent_budgets SET monthly_limit_micros = 1 WHERE false",
+    ),
+    (
+        "ao_server",
+        "UPDATE engine_runs SET version = 1 WHERE false",
+    ),
+    ("ao_server", "SELECT count(*) FROM provider_credentials"),
+    ("ao_server", "SELECT count(*) FROM task_tokens"),
+    ("ao_server", "DELETE FROM audit_events WHERE false"),
 ];
 
 async fn try_as(pool: &PgPool, role: &str, sql: &'static str) -> Result<(), String> {
     let set_role = match role {
         "ao_gateway" => "SET LOCAL ROLE ao_gateway",
         "ao_engine" => "SET LOCAL ROLE ao_engine",
+        "ao_server" => "SET LOCAL ROLE ao_server",
         other => panic!("unknown role {other}"),
     };
     let mut tx = pool.begin().await.unwrap();
