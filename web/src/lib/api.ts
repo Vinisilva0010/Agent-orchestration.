@@ -76,7 +76,18 @@ const MESSAGES: Record<string, string> = {
   forbidden: "Você não tem permissão para fazer isso.",
   forbidden_origin: "O pedido não veio desta página. Recarregue e tente de novo.",
   unauthorized: "Sua sessão terminou. Entre de novo.",
+  not_found: "Não encontrado. Pode ter sido removido, ou você não tem acesso.",
+  request_pending: "Já existe um pedido para esta tarefa sendo feito. Espere alguns segundos.",
+  not_waiting: "Esta tarefa não está mais esperando. A página foi atualizada.",
+  agent_archived: "Este agente está arquivado e não recebe tarefas novas.",
+  too_many_pending_tasks: "Você já tem 5 tarefas esperando para começar. Espere uma delas começar.",
+  agent_exists: "Já existe um agente com este identificador.",
+  email_taken: "Já existe uma conta com este e-mail.",
+  last_admin: "Não é possível: este é o último administrador ativo.",
+  invalid_request: "Confira os dados digitados e tente de novo.",
+  gateway_unavailable: "O serviço de modelos não respondeu. Tente de novo em instantes.",
 };
+
 
 /** What to tell the person, in plain words. */
 export function messageFor(error: unknown): string {

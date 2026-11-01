@@ -25,6 +25,8 @@ html {
 
 body {
   font-size: 18px;
+  /* Bold by default: large, heavy text is easier to read for everyone. */
+  font-weight: 700;
 }
 
 :focus-visible {

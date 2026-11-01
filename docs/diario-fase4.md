@@ -136,3 +136,76 @@ auditoria. Também confere que `ao_engine` só lê `agents`.
   404) para quem não tem permissão, como antes. Os ids de run são aleatórios
   de 128 bits, então isso não permite descobrir runs; mantive para não mudar
   o comportamento já testado.
+
+### Correção encontrada na verificação ao vivo (entre 4.2c e 4.3)
+
+Subindo a pilha inteira com o provedor mock, a página de uma tarefa deu erro
+500: o papel `ao_server` não tinha permissão de leitura em
+`engine_tool_executions`. Os testes não pegaram porque o app, nos testes HTTP
+do server, usava a conexão do dono do banco (que pode tudo).
+- Nova migração `20261101000002_run_views.sql` com só `GRANT SELECT`.
+- Todos os testes HTTP do server agora rodam o app com o papel `ao_server`
+  (`server/tests/common/mod.rs`, `server_pool`). Conferi que, sem a migração,
+  3 testes falham; com ela, passam. Os testes antigos (contas, admin, runs,
+  chaves) continuaram passando com o papel real, então não havia outra falta.
+- `scripts/e2e-stack.sh` sobe gateway (mock), server, worker e web num banco
+  descartável `ao_e2e`, nas portas 8181, 8190 e 3100, sem tocar no banco de
+  desenvolvimento nem no servidor web da porta 3000. Cada processo recebe só
+  as variáveis dele (`env -i`), então engine e server nunca veem a chave
+  mestra nem chaves de provedor. A conta de teste dele só existe nesse banco.
+
+## 4.3 — Telas com dados reais
+
+**O que foi feito.**
+- Menu lateral: Início, Agentes, Aprovações (com o número de ações que a
+  pessoa pode decidir). Gastos, Pessoas e Configurações entram na 4.4,
+  junto com as páginas, para o menu nunca apontar para página que não existe.
+- Início: o que espera decisão, caixa para começar tarefa (com escolha do
+  agente) e os agentes com status.
+- Agentes e página do agente: nome, status, descrição, gasto do mês, caixa de
+  tarefa, lista de tarefas (fila e runs) e a tarefa escolhida com gasto,
+  conversa, "O que o agente fez" e resultado.
+- Aprovações: cartão com "Ação sem volta" (vermelho #FEE2E2/#7F1D1D), "O que
+  vai acontecer", "Por que o agente pediu", "Detalhes técnicos" recolhido
+  (nome da ferramenta e entrada em JSON), Aprovar, Recusar e o aviso de
+  auditoria.
+- Atualização a cada 5 segundos enquanto a aba está visível
+  (`src/lib/use-poll.ts`), sempre com `cache: "no-store"`.
+- Testes vitest: dinheiro em pt-BR (`US$ 3,12` com Intl), leitura de valores
+  digitados, porcentagem, horários, status, contagem de decisões, escolha da
+  tarefa mostrada e filas (20 testes no total do web).
+
+**Decisões e por quê.**
+- *Uma decisão por tarefa:* o server recusa toda ação pendente que não for
+  aprovada. Então "Aprovar" aprova todas as ações daquela tarefa e
+  "Recusar" recusa todas; quando há mais de uma, o cartão avisa.
+- *"O que vai acontecer"* usa a descrição da ferramenta (texto de
+  desenvolvedor), em português para as ferramentas conhecidas; o texto do
+  modelo fica separado em "Por que o agente pediu", com o aviso de que foi
+  escrito pelo agente. Tudo que vem de modelo ou ferramenta é mostrado como
+  texto (sem `dangerouslySetInnerHTML`, sem `style` inline).
+- *Valores pequenos:* gastos abaixo de 1 centavo aparecem como
+  "menos de US$ 0,01", nunca como zero.
+- *Valores digitados:* a vírgula é sempre a casa decimal; "3,125" é recusado
+  em vez de virar três mil dólares.
+- *Erros do server* chegam em inglês; a tela mostra mensagens em português
+  por código de erro. O erro técnico de uma run aparece só dentro de
+  "Detalhes técnicos do problema".
+- *Negrito:* o corpo da página passou a ser negrito por padrão (regra de
+  texto grande e em negrito); isso também deixa a tela de login toda em
+  negrito.
+- *Barras de progresso* em SVG com atributos `width`/`height`.
+
+**Verificação ao vivo.** Pilha e2e com provedor mock: tarefa com
+`[mock:tool:archive_report]` parou esperando aprovação; tarefa com
+`[mock:tool:get_time]` concluiu. Capturas de tela da Início, do agente, de
+Aprovações e de Aprovações em largura de celular, sem nenhum erro de console
+(a CSP não bloqueou nada). O Chromium do Playwright não roda direto nesta
+máquina (faltam bibliotecas do sistema, libnss3 e libnspr4, que exigiriam
+sudo); usei a imagem Docker oficial do Playwright 1.64.1, fixada por digest.
+
+**Pendências.**
+- Não há tela para criar agentes; hoje isso é feito pela API
+  (`POST /api/agents`). Não estava na lista.
+- O Dependabot abriu uma atualização do `minimatch` no web cujo CI falhou.
+  Não mexi (regra: não fazer merge de PRs de terceiros).
