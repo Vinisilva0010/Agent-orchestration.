@@ -253,3 +253,31 @@ reais e sem erros de console.
 **Pendências.** Não testei salvar uma chave de verdade (nem falsa) na tela
 ao vivo; o caminho da chave já é coberto pelos testes do server
 (`keys_go_to_the_gateway_with_the_admin_secret_and_never_come_back`).
+
+## 4.5 — Testes ponta a ponta (terminado com acompanhamento)
+
+**O que foi feito.** `web/e2e/workspace.e2e.ts` com 5 testes no navegador
+(Playwright 1.64.1, versão fixa), contra a pilha de `scripts/e2e-stack.sh`
+(provedor mock, banco descartável `ao_e2e`): entrar; começar tarefa e aprovar
+a ação sem volta até a tarefa concluir; recusar e confirmar que a ação nunca
+roda; tarefa parada por orçamento continua depois que o administrador libera;
+sair e as páginas voltam a pedir login. Todos falham se o navegador registrar
+qualquer erro (inclusive bloqueio da CSP). `scripts/e2e.sh` roda o Playwright
+dentro da imagem oficial fixada por digest, sem instalar nada no sistema.
+
+**Correções feitas na revisão.**
+- O `web/.gitignore` tinha sido substituído só pelas duas linhas novas,
+  perdendo `node_modules`, `.next` e `.env*`. Restaurado o original e
+  acrescentadas apenas as pastas do Playwright.
+- Duas expressões regulares usavam a flag `s`, que a checagem de tipos do
+  build do Next recusa; trocadas por `[\s\S]*`, com o mesmo efeito.
+- A pasta de resultados agora é uma subpasta da montagem (`/results/run`),
+  porque o Playwright precisa apagá-la e um ponto de montagem não pode ser
+  apagado.
+- Três testes esperavam a mensagem de confirmação dentro do cartão, mas com o
+  mock o pedido é processado em menos de um segundo e o cartão sai da lista
+  junto com a mensagem. Agora esperam o cartão sair da lista, o que prova que
+  o pedido foi processado; os passos seguintes conferem o resultado.
+
+**Pendências.** Os testes ponta a ponta ainda não rodam no CI; rodam com
+`scripts/e2e.sh` na máquina de desenvolvimento.
